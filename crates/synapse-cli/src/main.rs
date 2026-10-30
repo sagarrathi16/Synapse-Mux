@@ -1,5 +1,6 @@
 mod stack;
 mod ui;
+mod update;
 
 use std::fs;
 use std::path::PathBuf;
@@ -219,6 +220,13 @@ enum Commands {
         #[arg(long, default_value_t = true)]
         mock: bool,
     },
+
+    /// Check for and install updates to synapse-mux
+    Update {
+        /// Only check for updates without installing
+        #[arg(long)]
+        check: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -266,7 +274,9 @@ async fn main() -> ExitCode {
 
     ui::print_banner();
 
-    match cli.command {
+    let is_update_cmd = matches!(cli.command, Commands::Update { .. });
+
+    let exit_code = match cli.command {
         Commands::Init { feature_id, repo } => {
             let mut steps = ui::StepProgress::new(4);
 
@@ -943,7 +953,17 @@ async fn main() -> ExitCode {
                 }
             }
         }
+
+        Commands::Update { check } => update::run_update(check).await,
+    };
+
+    if !is_update_cmd
+        && let Some(latest) = update::check_for_update_cached(env!("CARGO_PKG_VERSION")).await
+    {
+        update::print_update_banner(env!("CARGO_PKG_VERSION"), &latest);
     }
+
+    exit_code
 }
 
 /// Helper to render the final Evidence Report Card on CLI.
