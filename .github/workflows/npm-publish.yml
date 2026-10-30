@@ -1,0 +1,96 @@
+name: Publish to NPM
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  build-binaries:
+    name: Build Binary (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            binary_name: synapse-linux-x64
+            is_win: false
+          - os: macos-13
+            target: x86_64-apple-darwin
+            binary_name: synapse-darwin-x64
+            is_win: false
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            binary_name: synapse-darwin-arm64
+            is_win: false
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            binary_name: synapse-win32-x64.exe
+            is_win: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build release binary
+        run: cargo build --release --target ${{ matrix.target }} -p synapse-cli
+
+      - name: Stage binary (POSIX)
+        if: ${{ !matrix.is_win }}
+        run: |
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/synapse dist/${{ matrix.binary_name }}
+          chmod +x dist/${{ matrix.binary_name }}
+
+      - name: Stage binary (Windows)
+        if: ${{ matrix.is_win }}
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist
+          Copy-Item target/${{ matrix.target }}/release/synapse.exe dist/${{ matrix.binary_name }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.binary_name }}
+          path: dist/*
+
+  publish-npm:
+    name: Publish to NPM Registry
+    needs: build-binaries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all binary artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Assemble NPM distribution package
+        run: |
+          mkdir -p npm/synapse-mux/bin
+          find artifacts -type f -name "synapse-*" -exec cp {} npm/synapse-mux/bin/ \;
+          chmod +x npm/synapse-mux/bin/synapse-* || true
+          ls -la npm/synapse-mux/bin/
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Publish to NPM
+        working-directory: npm/synapse-mux
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public

@@ -1,0 +1,31 @@
+{
+  "name": "synapse-mux",
+  "version": "0.1.0",
+  "description": "Contract-First Cross-Model Agent Orchestrator for Claude Code and OpenAI Codex CLI",
+  "bin": {
+    "synapse": "./bin/synapse.js",
+    "synapse-mux": "./bin/synapse.js"
+  },
+  "files": [
+    "bin",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "ai",
+    "claude-code",
+    "codex",
+    "orchestrator",
+    "agents",
+    "git",
+    "code-generation"
+  ],
+  "author": "Synapse-Mux Contributors",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sagarrathi16/Synapse-Mux"
+  }
+}
