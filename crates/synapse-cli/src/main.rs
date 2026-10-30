@@ -1,3 +1,4 @@
+mod stack;
 mod ui;
 
 use std::fs;
@@ -31,7 +32,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Initialize a starter synapse-spec.json and contract structure in repository
+    /// Initialize a starter synapse-spec.json and auto-detect repository stack
+    #[command(alias = "setup")]
     Init {
         /// Feature ID / run title
         #[arg(short, long, default_value = "starter-feature")]
@@ -266,55 +268,114 @@ async fn main() -> ExitCode {
 
     match cli.command {
         Commands::Init { feature_id, repo } => {
-            println!("Initializing contract-first scaffold in {:?}...", repo);
-            let contract_dir = repo.join("src").join("contracts");
-            let tests_dir = repo.join("tests");
-            let _ = fs::create_dir_all(&contract_dir);
-            let _ = fs::create_dir_all(&tests_dir);
+            let mut steps = ui::StepProgress::new(4);
 
-            let contract_file = contract_dir.join("app.contract.ts");
+            // Step 1: Detect repository
+            steps.start_step("Inspecting repository structure and Git status");
+            let canonical_repo = repo.canonicalize().unwrap_or_else(|_| repo.clone());
+            if !canonical_repo.join(".git").exists() {
+                steps.fail_step("Not a Git repository");
+                ui::print_error_box(
+                    "Repository Not Initialized",
+                    &format!("{:?} is not a git repository root.", canonical_repo),
+                    "Run 'git init' before initializing Synapse.",
+                );
+                return ExitCode::FAILURE;
+            }
+            steps.complete_step("Git repository confirmed");
+
+            // Step 2: Auto-detect stack
+            steps.start_step("Auto-detecting tech stack and project layout");
+            let detected = stack::DetectedStack::detect(&canonical_repo);
+            steps.complete_step(&format!(
+                "Detected {} ({})",
+                detected.language, detected.package_manager
+            ));
+            if !detected.typecheck_cmd.is_empty() {
+                steps.log_substep(&format!("Typecheck command: {:?}", detected.typecheck_cmd));
+            }
+            if !detected.test_cmd.is_empty() {
+                steps.log_substep(&format!("Test command:      {:?}", detected.test_cmd));
+            }
+
+            // Step 3: Check AI toolchains
+            steps.start_step("Checking installed AI provider toolchains");
+            let tools = stack::ToolchainStatus::detect().await;
+            let git_info = tools.git.as_deref().unwrap_or("git (system)");
+            let claude_info = tools
+                .claude
+                .as_deref()
+                .unwrap_or("Not installed (run: npm i -g @anthropic-ai/claude-code)");
+            let codex_info = tools
+                .codex
+                .as_deref()
+                .unwrap_or("Not installed (run: npm i -g @openai/codex-cli)");
+            steps.log_substep(&format!("Git:         {}", git_info));
+            steps.log_substep(&format!("Claude Code: {}", claude_info));
+            steps.log_substep(&format!("Codex CLI:   {}", codex_info));
+            steps.complete_step("Toolchain inspection complete");
+
+            // Step 4: Scaffold spec and contract files
+            steps.start_step("Scaffolding synapse-spec.json and contracts");
+            let contract_file = canonical_repo.join(detected.contract_file);
+            let contract_test = canonical_repo.join(detected.contract_test_file);
+
+            if let Some(parent) = contract_file.parent() {
+                let _ = fs::create_dir_all(parent);
+            }
+            if let Some(parent) = contract_test.parent() {
+                let _ = fs::create_dir_all(parent);
+            }
+
             if !contract_file.exists() {
-                let _ = fs::write(
-                    &contract_file,
-                    "// Synapse-Mux Shared Type Contract\nexport interface AppContext {\n  userId: string;\n  role: string;\n}\n",
-                );
+                let _ = fs::write(&contract_file, detected.contract_stub);
             }
-
-            let contract_test = tests_dir.join("app.contract.test.ts");
             if !contract_test.exists() {
-                let _ = fs::write(
-                    &contract_test,
-                    "import { AppContext } from '../src/contracts/app.contract';\n\nexport function verify(c: AppContext) {\n  return c.userId.length > 0;\n}\n",
-                );
+                let _ = fs::write(&contract_test, detected.contract_test_stub);
             }
 
-            let spec_path = repo.join("synapse-spec.json");
+            let spec_path = canonical_repo.join("synapse-spec.json");
+            let mut verif_cmds = Vec::new();
+            if !detected.typecheck_cmd.is_empty() {
+                verif_cmds.push(serde_json::json!({
+                    "name": "typecheck",
+                    "command": detected.typecheck_cmd
+                }));
+            }
+            if !detected.test_cmd.is_empty() {
+                verif_cmds.push(serde_json::json!({
+                    "name": "test",
+                    "command": detected.test_cmd
+                }));
+            }
+
             let spec_content = serde_json::json!({
                 "schema_version": 1,
                 "run_id": format!("{}-run-{}", feature_id, Utc::now().format("%Y%m%d")),
                 "feature_id": feature_id,
                 "base_commit": "HEAD",
-                "contract_files": ["src/contracts/app.contract.ts"],
-                "contract_tests": ["tests/app.contract.test.ts"],
+                "contract_files": [detected.contract_file],
+                "contract_tests": [detected.contract_test_file],
                 "partitions": {
                     "claude": {
                         "role": "api",
-                        "owned_globs": ["src/api/**", "src/services/**"]
+                        "owned_globs": detected.claude_globs
                     },
                     "codex": {
                         "role": "worker",
-                        "owned_globs": ["src/workers/**", "src/db/**"]
+                        "owned_globs": detected.codex_globs
                     }
                 },
                 "shared_files": [],
                 "shared_file_policy": {},
-                "verification_commands": []
+                "verification_commands": verif_cmds
             });
 
             if let Err(e) = fs::write(
                 &spec_path,
                 serde_json::to_string_pretty(&spec_content).unwrap(),
             ) {
+                steps.fail_step("Failed to write synapse-spec.json");
                 ui::print_error_box(
                     "Failed to write synapse-spec.json",
                     &e.to_string(),
@@ -322,19 +383,22 @@ async fn main() -> ExitCode {
                 );
                 return ExitCode::FAILURE;
             }
+            steps.complete_step("Scaffold generated successfully");
 
             ui::print_card(
-                "Scaffold Created Successfully",
+                "Zero-Prompt Setup Complete",
                 &[
-                    ("Spec File", spec_path.display().to_string()),
-                    ("Contract", contract_file.display().to_string()),
-                    ("Contract Test", contract_test.display().to_string()),
+                    ("Language", detected.language.to_string()),
+                    ("Package Mgr", detected.package_manager.to_string()),
+                    ("Spec File", "synapse-spec.json".to_string()),
+                    ("Contract", detected.contract_file.to_string()),
+                    ("Contract Test", detected.contract_test_file.to_string()),
                 ],
                 Some(&[
-                    "Next Steps:",
-                    " 1. Commit baseline contract: git add . && git commit -m 'Add contract'",
-                    " 2. Approve contract:        synapse contract approve",
-                    " 3. Run dual-agent:           synapse run",
+                    "Next Steps in your editor (Cursor / VS Code):",
+                    " 1. Inspect contract:       edit synapse-spec.json",
+                    " 2. Approve contract:       synapse contract approve",
+                    " 3. Run dual-model workers: synapse run --prompt 'Your feature prompt'",
                 ]),
             );
             ExitCode::SUCCESS
