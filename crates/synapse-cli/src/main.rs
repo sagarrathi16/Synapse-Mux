@@ -384,23 +384,6 @@ async fn main() -> ExitCode {
                 return ExitCode::FAILURE;
             }
             steps.complete_step("Scaffold generated successfully");
-
-            ui::print_card(
-                "Zero-Prompt Setup Complete",
-                &[
-                    ("Language", detected.language.to_string()),
-                    ("Package Mgr", detected.package_manager.to_string()),
-                    ("Spec File", "synapse-spec.json".to_string()),
-                    ("Contract", detected.contract_file.to_string()),
-                    ("Contract Test", detected.contract_test_file.to_string()),
-                ],
-                Some(&[
-                    "Next Steps in your editor (Cursor / VS Code):",
-                    " 1. Inspect contract:       edit synapse-spec.json",
-                    " 2. Approve contract:       synapse contract approve",
-                    " 3. Run dual-model workers: synapse run --prompt 'Your feature prompt'",
-                ]),
-            );
             ExitCode::SUCCESS
         }
 
