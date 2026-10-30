@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Synapse-Mux Evaluation Pre-Registration",
+  "version": "1.0.0",
+  "registered_at": "2026-10-30T00:00:00Z",
+  "study_design": {
+    "task_count": 20,
+    "repeats_per_task": 3,
+    "randomize_order": true,
+    "arms": [
+      {
+        "id": "A",
+        "name": "Single Agent Baseline",
+        "description": "One coding agent completes the task alone without contract orchestration."
+      },
+      {
+        "id": "B",
+        "name": "Uncoordinated Dual-Agent Baseline",
+        "description": "Two agents in ordinary isolated worktrees with the same written prompt, standard CI gate, and human reviewer pass."
+      },
+      {
+        "id": "C",
+        "name": "Synapse-Mux Heterogeneous (Claude + Codex)",
+        "description": "Contract-first orchestration, hash-locked contract tests, partition enforcement, and deterministic verification."
+      },
+      {
+        "id": "C-same",
+        "name": "Synapse-Mux Homogeneous Ablation",
+        "description": "Identical Synapse-Mux workflow using two workers from the same provider to test cross-model contribution."
+      },
+      {
+        "id": "D",
+        "name": "Sequential Single Agent with Contract",
+        "description": "One agent given the approved contract and contract tests working sequentially."
+      }
+    ]
+  },
+  "primary_threshold": {
+    "metric": "human_integration_time_minutes",
+    "comparison": "median_vs_baseline_B",
+    "target_improvement_percentage": 25.0,
+    "condition": ">= 25% lower median human integration time than Baseline B with no reduction in hidden-test pass rate",
+    "secondary_gate": "hidden-test pass rate not below Arm D at comparable or lower wall-clock time"
+  },
+  "metrics": [
+    "first_integration_build_pass_rate",
+    "acceptance_criteria_pass_rate",
+    "human_integration_minutes",
+    "task_wall_clock_seconds",
+    "post_integration_defects_count",
+    "contract_violations_detected_pre_integration",
+    "repair_attempts_count",
+    "observed_tokens",
+    "estimated_cost_usd",
+    "crash_recovery_rate"
+  ]
+}
+

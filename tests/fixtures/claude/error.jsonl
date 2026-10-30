@@ -1,0 +1,5 @@
+{"type":"system","session_id":"test-session-004","model":"claude-3-7-sonnet"}
+{"type":"assistant","message":{"content":[{"type":"text","text":"Encountered an unrecoverable dependency failure."}]}}
+{"type":"usage","usage":{"input_tokens":800,"output_tokens":95}}
+{"type":"result","subtype":"error","error":"Compilation failed in target file."}
+

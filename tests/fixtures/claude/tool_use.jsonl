@@ -1,0 +1,8 @@
+{"type":"system","session_id":"test-session-002","model":"claude-3-7-sonnet"}
+{"type":"tool_use","tool":"read_file","input":{"path":"src/contracts/webhook.ts"}}
+{"type":"tool_result","tool":"read_file","output":"export interface WebhookPayload { id: string; }"}
+{"type":"tool_use","tool":"write_file","input":{"path":"src/impl/webhook.ts","content":"export const handle = () => {};"}}
+{"type":"tool_result","tool":"write_file","output":"File created."}
+{"type":"usage","usage":{"input_tokens":2100,"output_tokens":640}}
+{"type":"result","subtype":"success","result":"Files written."}
+

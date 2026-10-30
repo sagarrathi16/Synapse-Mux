@@ -1,0 +1,5 @@
+{"type":"system","session_id":"test-session-003"}
+This is broken raw text not valid JSON
+{"type":"invalid_type_name","foo":"bar"}
+{"type":"result","subtype":"success","result":"Done"}
+
