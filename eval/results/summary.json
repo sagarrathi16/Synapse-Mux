@@ -1,0 +1,184 @@
+{
+  "generated_at": "2026-10-30T08:45:13.742113400Z",
+  "preregistration_version": "1.0.0",
+  "total_runs": 10,
+  "arms": {
+    "A": {
+      "arm_id": "A",
+      "total_runs": 2,
+      "first_integration_pass_rate": 100.0,
+      "acceptance_criteria_pass_rate": 100.0,
+      "human_integration_minutes": {
+        "mean": 14.0,
+        "median": 14.0,
+        "std_dev": 0.0,
+        "min": 14.0,
+        "max": 14.0
+      },
+      "task_wall_clock_seconds": {
+        "mean": 42.0,
+        "median": 42.0,
+        "std_dev": 0.0,
+        "min": 42.0,
+        "max": 42.0
+      },
+      "post_integration_defects_total": 0,
+      "contract_violations_detected_total": 0,
+      "repair_attempts_total": 0,
+      "observed_tokens_total": 77000,
+      "observed_tokens_mean": 38500.0,
+      "estimated_cost_usd_total": 1.16,
+      "estimated_cost_usd_mean": 0.58
+    },
+    "B": {
+      "arm_id": "B",
+      "total_runs": 2,
+      "first_integration_pass_rate": 0.0,
+      "acceptance_criteria_pass_rate": 0.0,
+      "human_integration_minutes": {
+        "mean": 36.0,
+        "median": 36.0,
+        "std_dev": 0.0,
+        "min": 36.0,
+        "max": 36.0
+      },
+      "task_wall_clock_seconds": {
+        "mean": 55.0,
+        "median": 55.0,
+        "std_dev": 0.0,
+        "min": 55.0,
+        "max": 55.0
+      },
+      "post_integration_defects_total": 6,
+      "contract_violations_detected_total": 0,
+      "repair_attempts_total": 2,
+      "observed_tokens_total": 124000,
+      "observed_tokens_mean": 62000.0,
+      "estimated_cost_usd_total": 1.9,
+      "estimated_cost_usd_mean": 0.95
+    },
+    "C": {
+      "arm_id": "C",
+      "total_runs": 2,
+      "first_integration_pass_rate": 100.0,
+      "acceptance_criteria_pass_rate": 100.0,
+      "human_integration_minutes": {
+        "mean": 4.0,
+        "median": 4.0,
+        "std_dev": 0.0,
+        "min": 4.0,
+        "max": 4.0
+      },
+      "task_wall_clock_seconds": {
+        "mean": 35.0,
+        "median": 35.0,
+        "std_dev": 0.0,
+        "min": 35.0,
+        "max": 35.0
+      },
+      "post_integration_defects_total": 0,
+      "contract_violations_detected_total": 0,
+      "repair_attempts_total": 0,
+      "observed_tokens_total": 97000,
+      "observed_tokens_mean": 48500.0,
+      "estimated_cost_usd_total": 1.44,
+      "estimated_cost_usd_mean": 0.72
+    },
+    "C-same": {
+      "arm_id": "C-same",
+      "total_runs": 2,
+      "first_integration_pass_rate": 100.0,
+      "acceptance_criteria_pass_rate": 100.0,
+      "human_integration_minutes": {
+        "mean": 5.2,
+        "median": 5.2,
+        "std_dev": 0.0,
+        "min": 5.2,
+        "max": 5.2
+      },
+      "task_wall_clock_seconds": {
+        "mean": 35.0,
+        "median": 35.0,
+        "std_dev": 0.0,
+        "min": 35.0,
+        "max": 35.0
+      },
+      "post_integration_defects_total": 0,
+      "contract_violations_detected_total": 0,
+      "repair_attempts_total": 0,
+      "observed_tokens_total": 102000,
+      "observed_tokens_mean": 51000.0,
+      "estimated_cost_usd_total": 1.52,
+      "estimated_cost_usd_mean": 0.76
+    },
+    "D": {
+      "arm_id": "D",
+      "total_runs": 2,
+      "first_integration_pass_rate": 100.0,
+      "acceptance_criteria_pass_rate": 100.0,
+      "human_integration_minutes": {
+        "mean": 7.5,
+        "median": 7.5,
+        "std_dev": 0.0,
+        "min": 7.5,
+        "max": 7.5
+      },
+      "task_wall_clock_seconds": {
+        "mean": 68.0,
+        "median": 68.0,
+        "std_dev": 0.0,
+        "min": 68.0,
+        "max": 68.0
+      },
+      "post_integration_defects_total": 0,
+      "contract_violations_detected_total": 0,
+      "repair_attempts_total": 0,
+      "observed_tokens_total": 84000,
+      "observed_tokens_mean": 42000.0,
+      "estimated_cost_usd_total": 1.26,
+      "estimated_cost_usd_mean": 0.63
+    }
+  },
+  "paired_differences": [
+    {
+      "task_id": "task-01-order-service",
+      "repeat_index": 0,
+      "human_minutes_b": 36.0,
+      "human_minutes_c": 4.0,
+      "delta_human_minutes": 32.0,
+      "acceptance_pass_b": false,
+      "acceptance_pass_c": true
+    },
+    {
+      "task_id": "task-02-auth-session",
+      "repeat_index": 0,
+      "human_minutes_b": 36.0,
+      "human_minutes_c": 4.0,
+      "delta_human_minutes": 32.0,
+      "acceptance_pass_b": false,
+      "acceptance_pass_c": true
+    }
+  ],
+  "go_no_go": {
+    "passed": true,
+    "primary_metric": "human_integration_time_minutes",
+    "median_human_minutes_b": 36.0,
+    "median_human_minutes_c": 4.0,
+    "improvement_percentage": 88.88888888888889,
+    "target_percentage": 25.0,
+    "primary_gate_passed": true,
+    "hidden_pass_rate_c": 100.0,
+    "hidden_pass_rate_b": 0.0,
+    "no_reduction_vs_b": true,
+    "hidden_pass_rate_d": 100.0,
+    "secondary_gate_passed": true,
+    "median_wall_clock_c": 35.0,
+    "median_wall_clock_d": 68.0,
+    "wall_clock_comparable_or_lower": true,
+    "reasons": [
+      "Primary Gate Passed: Median human integration time reduced by 88.9% (target >= 25.0%)",
+      "Quality Invariant Maintained: Arm C acceptance pass rate (100.0%) >= Baseline B (0.0%)",
+      "Secondary Gate Passed: Arm C acceptance pass rate (100.0%) >= Arm D (100.0%) with lower wall-clock time (35.0s vs 68.0s)"
+    ]
+  }
+}

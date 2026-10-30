@@ -1,0 +1,40 @@
+# Blinded Diff Review Artifact: blind_f445c341ffd81054
+# Task: Evaluated Implementation Diff
+# Warning: Author and orchestration arm metadata stripped for unbiased review.
+
+diff --git a/src/api/order_controller.ts b/src/api/order_controller.ts
+new file mode 100644
+index 0000000..a11a4ee
+--- /dev/null
++++ b/src/api/order_controller.ts
+@@ -0,0 +1,7 @@
++import { OrderPayload, OrderReceipt } from '../contracts/order.contract';
++
++export class OrderController {
++  async handleOrder(payload: OrderPayload): Promise<OrderReceipt> {
++    return { orderId: payload.id, status: 'CONFIRMED', timestamp: Date.now() };
++  }
++}
+diff --git a/src/services/order_service.ts b/src/services/order_service.ts
+new file mode 100644
+index 0000000..5fb0cd4
+--- /dev/null
++++ b/src/services/order_service.ts
+@@ -0,0 +1 @@
++export const orderService = { name: 'OrderServiceV1' };
+diff --git a/synapse-spec.json b/synapse-spec.json
+index e3aa5b4..3ee2eba 100644
+--- a/synapse-spec.json
++++ b/synapse-spec.json
+@@ -2,7 +2,11 @@
+   "schema_version": 1,
+   "run_id": "task-01-order-service-C-same-r0",
+   "feature_id": "task-01-order-service",
++<<<<<<< HEAD
+   "base_commit": "e82e692e316b5edd5fcd333886060af8032320b8",
++=======
++  "base_commit": "74ab875f15fb5abaa5520d449984659b286df9ff",
++>>>>>>> refs/synapse/task-01-order-service-C-same-r0/checkpoint-claude
+   "contract_revision": 1,
+   "contract_files": [
+     "src/contracts/order.contract.ts"

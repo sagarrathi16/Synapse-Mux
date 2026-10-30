@@ -15,6 +15,7 @@ repository = "https://github.com/sagarrathi16/102"
 
 [workspace.dependencies]
 synapse-core = { path = "crates/synapse-core" }
+synapse-eval = { path = "crates/synapse-eval" }
 tokio = { version = "1.43", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0" }

@@ -701,6 +701,7 @@ dependencies = [
  "serde",
  "serde_json",
  "synapse-core",
+ "synapse-eval",
  "tempfile",
  "tokio",
  "tracing",
@@ -732,11 +733,14 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
+ "hex",
  "serde",
  "serde_json",
+ "sha2",
  "synapse-core",
  "tempfile",
  "tokio",
+ "tracing",
 ]
 
 [[package]]

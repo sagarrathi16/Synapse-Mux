@@ -148,6 +148,50 @@ enum Commands {
         #[arg(long, default_value = ".")]
         repo: PathBuf,
     },
+
+    /// Run the 5-arm comparative evaluation benchmark
+    #[command(alias = "eval")]
+    Benchmark {
+        /// Directory containing task definitions
+        #[arg(long, default_value = "eval/tasks")]
+        tasks_dir: PathBuf,
+
+        /// Output directory for benchmark report
+        #[arg(long, default_value = "eval/results")]
+        output_dir: PathBuf,
+
+        /// Output directory for blinded review diff patches
+        #[arg(long, default_value = "eval/blind_review")]
+        blind_dir: PathBuf,
+
+        /// Path to preregistration.json
+        #[arg(long, default_value = "eval/preregistration.json")]
+        preregistration: PathBuf,
+
+        /// Number of repeats per task
+        #[arg(long, default_value_t = 3)]
+        repeats: usize,
+
+        /// Randomize arm execution order
+        #[arg(long, default_value_t = true)]
+        randomize_order: bool,
+
+        /// Randomization seed
+        #[arg(long, default_value_t = 42)]
+        seed: u64,
+
+        /// Specific arms to run (comma-separated, e.g. "A,B,C,C-same,D")
+        #[arg(long, value_delimiter = ',')]
+        arms: Option<Vec<String>>,
+
+        /// Enable optional MCP broker tools
+        #[arg(long)]
+        enable_mcp_broker: bool,
+
+        /// Use mock mode for fast local verification
+        #[arg(long, default_value_t = true)]
+        mock: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -416,6 +460,75 @@ async fn main() -> ExitCode {
                 Err(e) => {
                     eprintln!("\n=== Failed to Export Diagnostic Bundle ===");
                     eprintln!("{e}");
+                    ExitCode::FAILURE
+                }
+            }
+        }
+        Commands::Benchmark {
+            tasks_dir,
+            output_dir,
+            blind_dir,
+            preregistration,
+            repeats,
+            randomize_order,
+            seed,
+            arms,
+            enable_mcp_broker,
+            mock,
+        } => {
+            info!("Starting 5-arm comparative benchmark runner");
+            let selected_arms = if let Some(arm_strs) = arms {
+                let mut parsed = Vec::new();
+                for s in arm_strs {
+                    if let Some(arm) = synapse_eval::ArmKind::parse(&s) {
+                        parsed.push(arm);
+                    } else {
+                        eprintln!("Warning: ignoring unknown arm '{s}'");
+                    }
+                }
+                parsed
+            } else {
+                synapse_eval::ArmKind::all()
+            };
+
+            let config = synapse_eval::BenchmarkConfig {
+                tasks_dir,
+                output_dir: output_dir.clone(),
+                blind_dir,
+                repeats,
+                randomize_order,
+                seed,
+                arms: selected_arms,
+                mock_mode: mock,
+                enable_mcp_broker,
+            };
+
+            let runner = synapse_eval::BenchmarkRunner::new(config);
+            match runner.run_benchmark().await {
+                Ok(run_report) => {
+                    match synapse_eval::PreRegistration::load_from_file(&preregistration) {
+                        Ok(prereg) => {
+                            let report =
+                                synapse_eval::EvaluationReport::build(&run_report.results, &prereg);
+                            if let Err(e) = report.save_to_dir(&output_dir) {
+                                eprintln!("Failed to save benchmark report: {e}");
+                                return ExitCode::FAILURE;
+                            }
+                            println!("{}", report.to_markdown());
+                            if report.go_no_go.passed {
+                                ExitCode::SUCCESS
+                            } else {
+                                ExitCode::FAILURE
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("Failed to load pre-registration: {e}");
+                            ExitCode::FAILURE
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Benchmark failed: {e}");
                     ExitCode::FAILURE
                 }
             }

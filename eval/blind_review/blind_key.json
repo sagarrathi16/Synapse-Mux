@@ -1,0 +1,92 @@
+[
+  {
+    "anon_id": "blind_015e3f54587ffb72",
+    "task_id": "task-01-order-service",
+    "arm_id": "B",
+    "repeat_index": 0,
+    "run_id": "task-01-order-service-B-r0",
+    "patch_filename": "blind_015e3f54587ffb72.patch",
+    "timestamp": "2026-10-30T08:45:01.356612500Z"
+  },
+  {
+    "anon_id": "blind_cd588b9509efa177",
+    "task_id": "task-01-order-service",
+    "arm_id": "C",
+    "repeat_index": 0,
+    "run_id": "task-01-order-service-C-r0",
+    "patch_filename": "blind_cd588b9509efa177.patch",
+    "timestamp": "2026-10-30T08:45:03.421400800Z"
+  },
+  {
+    "anon_id": "blind_53697ff8c12afc2a",
+    "task_id": "task-01-order-service",
+    "arm_id": "A",
+    "repeat_index": 0,
+    "run_id": "task-01-order-service-A-r0",
+    "patch_filename": "blind_53697ff8c12afc2a.patch",
+    "timestamp": "2026-10-30T08:45:03.866557100Z"
+  },
+  {
+    "anon_id": "blind_f445c341ffd81054",
+    "task_id": "task-01-order-service",
+    "arm_id": "C-same",
+    "repeat_index": 0,
+    "run_id": "task-01-order-service-C-same-r0",
+    "patch_filename": "blind_f445c341ffd81054.patch",
+    "timestamp": "2026-10-30T08:45:06.104614700Z"
+  },
+  {
+    "anon_id": "blind_358ec9af6c1f2e95",
+    "task_id": "task-01-order-service",
+    "arm_id": "D",
+    "repeat_index": 0,
+    "run_id": "task-01-order-service-D-r0",
+    "patch_filename": "blind_358ec9af6c1f2e95.patch",
+    "timestamp": "2026-10-30T08:45:06.529581Z"
+  },
+  {
+    "anon_id": "blind_8f9a63ca349aff70",
+    "task_id": "task-02-auth-session",
+    "arm_id": "D",
+    "repeat_index": 0,
+    "run_id": "task-02-auth-session-D-r0",
+    "patch_filename": "blind_8f9a63ca349aff70.patch",
+    "timestamp": "2026-10-30T08:45:07.019516700Z"
+  },
+  {
+    "anon_id": "blind_6d2a852b44b97d86",
+    "task_id": "task-02-auth-session",
+    "arm_id": "A",
+    "repeat_index": 0,
+    "run_id": "task-02-auth-session-A-r0",
+    "patch_filename": "blind_6d2a852b44b97d86.patch",
+    "timestamp": "2026-10-30T08:45:07.440308700Z"
+  },
+  {
+    "anon_id": "blind_1cb6e760022fcfcf",
+    "task_id": "task-02-auth-session",
+    "arm_id": "B",
+    "repeat_index": 0,
+    "run_id": "task-02-auth-session-B-r0",
+    "patch_filename": "blind_1cb6e760022fcfcf.patch",
+    "timestamp": "2026-10-30T08:45:09.231686700Z"
+  },
+  {
+    "anon_id": "blind_6b9e460fe25d910c",
+    "task_id": "task-02-auth-session",
+    "arm_id": "C-same",
+    "repeat_index": 0,
+    "run_id": "task-02-auth-session-C-same-r0",
+    "patch_filename": "blind_6b9e460fe25d910c.patch",
+    "timestamp": "2026-10-30T08:45:11.493469200Z"
+  },
+  {
+    "anon_id": "blind_13eaed68e2ffd586",
+    "task_id": "task-02-auth-session",
+    "arm_id": "C",
+    "repeat_index": 0,
+    "run_id": "task-02-auth-session-C-r0",
+    "patch_filename": "blind_13eaed68e2ffd586.patch",
+    "timestamp": "2026-10-30T08:45:13.740575300Z"
+  }
+]

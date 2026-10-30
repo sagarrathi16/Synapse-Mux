@@ -1,0 +1,58 @@
+{
+  "task_id": "task-02-auth-session",
+  "name": "Auth Session Management & Redis Store Partition",
+  "description": "Implement stateless JWT session generation in auth service and Redis token revocation in middleware.",
+  "feature_prompt": "Refactor session management to use JWT generation with Redis-backed revocation checking.",
+  "contract_files": [
+    "src/contracts/session.contract.ts"
+  ],
+  "contract_tests": [
+    "tests/session.contract.test.ts"
+  ],
+  "partitions": {
+    "claude": [
+      "src/auth/**",
+      "src/tokens/**"
+    ],
+    "codex": [
+      "src/redis/**",
+      "src/middleware/**"
+    ]
+  },
+  "shared_file_policy": {
+    "pnpm-lock.yaml": {
+      "owner": "supervisor",
+      "resolution": "regenerate"
+    }
+  },
+  "shared_files": [
+    "pnpm-lock.yaml"
+  ],
+  "ci_gate_commands": [],
+  "hidden_tests": [],
+  "baseline_files": {
+    "pnpm-lock.yaml": "# lockfile v3\nlockfileVersion: '6.0'\n",
+    "package.json": "{\n  \"name\": \"auth-subsystem\",\n  \"version\": \"1.0.0\"\n}\n",
+    "src/contracts/session.contract.ts": "export interface SessionToken {\n  userId: string;\n  token: string;\n  expiresAt: number;\n}\n\nexport interface ValidationResult {\n  valid: boolean;\n  userId?: string;\n}\n",
+    "tests/session.contract.test.ts": "import { SessionToken, ValidationResult } from '../src/contracts/session.contract';\n\nexport function testSessionContract(t: SessionToken): ValidationResult {\n  return {\n    valid: t.expiresAt > Date.now(),\n    userId: t.userId\n  };\n}\n"
+  },
+  "worker_a_impl": {
+    "src/auth/session_manager.ts": "import { SessionToken } from '../contracts/session.contract';\n\nexport class SessionManager {\n  createSession(userId: string): SessionToken {\n    return { userId, token: 'jwt_' + userId, expiresAt: Date.now() + 3600 };\n  }\n}\n",
+    "src/tokens/jwt.ts": "export const jwtSigner = { algo: 'HS256' };\n"
+  },
+  "worker_b_impl": {
+    "src/redis/revocation_store.ts": "export class RevocationStore {\n  private revoked = new Set<string>();\n  revoke(token: string) { this.revoked.add(token); }\n  isRevoked(token: string): boolean { return this.revoked.has(token); }\n}\n",
+    "src/middleware/auth_guard.ts": "import { SessionToken, ValidationResult } from '../contracts/session.contract';\nexport function validate(token: SessionToken): ValidationResult { return { valid: true, userId: token.userId }; }\n"
+  },
+  "single_agent_impl": {
+    "src/auth/session_manager.ts": "import { SessionToken } from '../contracts/session.contract';\n\nexport class SessionManager {\n  createSession(userId: string): SessionToken {\n    return { userId, token: 'jwt_' + userId, expiresAt: Date.now() + 3600 };\n  }\n}\n",
+    "src/tokens/jwt.ts": "export const jwtSigner = { algo: 'HS256' };\n",
+    "src/redis/revocation_store.ts": "export class RevocationStore {\n  private revoked = new Set<string>();\n  revoke(token: string) { this.revoked.add(token); }\n  isRevoked(token: string): boolean { return this.revoked.has(token); }\n}\n",
+    "src/middleware/auth_guard.ts": "import { SessionToken, ValidationResult } from '../contracts/session.contract';\nexport function validate(token: SessionToken): ValidationResult { return { valid: true, userId: token.userId }; }\n"
+  },
+  "uncoordinated_worker_b_impl": {
+    "src/auth/session_manager.ts": "// Uncoordinated collision with worker A!\nexport class SessionManagerConflict {\n  conflict(): void {}\n}\n",
+    "src/redis/revocation_store.ts": "export class RevocationStore {\n  revoke(): void {}\n}\n"
+  }
+}
+

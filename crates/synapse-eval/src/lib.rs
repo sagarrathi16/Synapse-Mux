@@ -1,8 +1,20 @@
+pub mod mcp_broker;
+pub mod report;
+pub mod runner;
+pub mod task;
+
 use std::fs;
 use std::path::Path;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+
+pub use mcp_broker::{ContractAmendmentProposal, FileClaim, McpBroker, McpBrokerState};
+pub use report::{ArmSummary, EvaluationReport, GoNoGoGate, PairedDifference, SummaryStats};
+pub use runner::{
+    ArmKind, BenchmarkConfig, BenchmarkRunReport, BenchmarkRunner, BlindedDiffRecord, SeededRng,
+};
+pub use task::EvalTask;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EvalArm {

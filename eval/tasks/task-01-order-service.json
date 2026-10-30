@@ -1,0 +1,58 @@
+{
+  "task_id": "task-01-order-service",
+  "name": "Order Service & Payment Queue Partition",
+  "description": "Implement decoupled order placement in order service and transaction queue in worker processor.",
+  "feature_prompt": "Refactor the order processing subsystem to handle asynchronous payments via worker queue.",
+  "contract_files": [
+    "src/contracts/order.contract.ts"
+  ],
+  "contract_tests": [
+    "tests/order.contract.test.ts"
+  ],
+  "partitions": {
+    "claude": [
+      "src/api/**",
+      "src/services/**"
+    ],
+    "codex": [
+      "src/workers/**",
+      "src/db/**"
+    ]
+  },
+  "shared_file_policy": {
+    "pnpm-lock.yaml": {
+      "owner": "supervisor",
+      "resolution": "regenerate"
+    }
+  },
+  "shared_files": [
+    "pnpm-lock.yaml"
+  ],
+  "ci_gate_commands": [],
+  "hidden_tests": [],
+  "baseline_files": {
+    "pnpm-lock.yaml": "# lockfile v3\nlockfileVersion: '6.0'\n",
+    "package.json": "{\n  \"name\": \"order-subsystem\",\n  \"version\": \"1.0.0\"\n}\n",
+    "src/contracts/order.contract.ts": "export interface OrderPayload {\n  id: string;\n  amount: number;\n  currency: string;\n}\n\nexport interface OrderReceipt {\n  orderId: string;\n  status: 'PENDING' | 'CONFIRMED' | 'FAILED';\n  timestamp: number;\n}\n",
+    "tests/order.contract.test.ts": "import { OrderPayload, OrderReceipt } from '../src/contracts/order.contract';\n\nexport function testOrderContract(p: OrderPayload): OrderReceipt {\n  return {\n    orderId: p.id,\n    status: 'CONFIRMED',\n    timestamp: Date.now()\n  };\n}\n"
+  },
+  "worker_a_impl": {
+    "src/api/order_controller.ts": "import { OrderPayload, OrderReceipt } from '../contracts/order.contract';\n\nexport class OrderController {\n  async handleOrder(payload: OrderPayload): Promise<OrderReceipt> {\n    return { orderId: payload.id, status: 'CONFIRMED', timestamp: Date.now() };\n  }\n}\n",
+    "src/services/order_service.ts": "export const orderService = { name: 'OrderServiceV1' };\n"
+  },
+  "worker_b_impl": {
+    "src/workers/order_queue.ts": "import { OrderReceipt } from '../contracts/order.contract';\n\nexport class OrderQueueProcessor {\n  process(receipt: OrderReceipt): boolean {\n    return receipt.status === 'CONFIRMED';\n  }\n}\n",
+    "src/db/order_repo.ts": "export const orderRepo = { table: 'orders' };\n"
+  },
+  "single_agent_impl": {
+    "src/api/order_controller.ts": "import { OrderPayload, OrderReceipt } from '../contracts/order.contract';\n\nexport class OrderController {\n  async handleOrder(payload: OrderPayload): Promise<OrderReceipt> {\n    return { orderId: payload.id, status: 'CONFIRMED', timestamp: Date.now() };\n  }\n}\n",
+    "src/services/order_service.ts": "export const orderService = { name: 'OrderServiceV1' };\n",
+    "src/workers/order_queue.ts": "import { OrderReceipt } from '../contracts/order.contract';\n\nexport class OrderQueueProcessor {\n  process(receipt: OrderReceipt): boolean {\n    return receipt.status === 'CONFIRMED';\n  }\n}\n",
+    "src/db/order_repo.ts": "export const orderRepo = { table: 'orders' };\n"
+  },
+  "uncoordinated_worker_b_impl": {
+    "src/api/order_controller.ts": "// Uncoordinated Worker B modified this file clashing with Worker A!\nexport class OrderControllerClash {\n  clash(): void {}\n}\n",
+    "src/workers/order_queue.ts": "export class OrderQueueProcessor {\n  process(): boolean { return true; }\n}\n"
+  }
+}
+

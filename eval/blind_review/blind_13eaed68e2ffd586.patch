@@ -1,0 +1,40 @@
+# Blinded Diff Review Artifact: blind_13eaed68e2ffd586
+# Task: Evaluated Implementation Diff
+# Warning: Author and orchestration arm metadata stripped for unbiased review.
+
+diff --git a/src/auth/session_manager.ts b/src/auth/session_manager.ts
+new file mode 100644
+index 0000000..0d40d7f
+--- /dev/null
++++ b/src/auth/session_manager.ts
+@@ -0,0 +1,7 @@
++import { SessionToken } from '../contracts/session.contract';
++
++export class SessionManager {
++  createSession(userId: string): SessionToken {
++    return { userId, token: 'jwt_' + userId, expiresAt: Date.now() + 3600 };
++  }
++}
+diff --git a/src/tokens/jwt.ts b/src/tokens/jwt.ts
+new file mode 100644
+index 0000000..b976b0b
+--- /dev/null
++++ b/src/tokens/jwt.ts
+@@ -0,0 +1 @@
++export const jwtSigner = { algo: 'HS256' };
+diff --git a/synapse-spec.json b/synapse-spec.json
+index 51caaa6..f2f42de 100644
+--- a/synapse-spec.json
++++ b/synapse-spec.json
+@@ -2,7 +2,11 @@
+   "schema_version": 1,
+   "run_id": "task-02-auth-session-C-r0",
+   "feature_id": "task-02-auth-session",
++<<<<<<< HEAD
+   "base_commit": "c4b8bfca331dbce9ceb569f4160497de75a3d4ce",
++=======
++  "base_commit": "6ab88cb33b4d70a37b9832ec04505b3b20d3a6de",
++>>>>>>> refs/synapse/task-02-auth-session-C-r0/checkpoint-claude
+   "contract_revision": 1,
+   "contract_files": [
+     "src/contracts/session.contract.ts"
