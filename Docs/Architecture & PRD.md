@@ -498,35 +498,35 @@ Do not rely on this example's placeholder commit, globs, or commands without val
 
 ### Milestone 1 — One end-to-end vertical slice
 
-- [ ]  Eval harness and single-agent baseline (Arms A and D scaffolding) running on a public parallel-agent benchmark, with the pre-registration file committed.
-- [ ]  Public-repo hygiene: license, README, [SECURITY.md](http://SECURITY.md), CONTRIBUTING with DCO sign-off, and CI running on recorded-event fixtures.
-- [ ]  Run controller and provider adapter modules implemented in Rust + Tokio.
-- [ ]  Preflight command for Git repo status, CLI versions, auth status where supported, and configured test commands.
-- [ ]  Start one worker in an isolated worktree, capture structured events and exit status, produce a diff.
-- [ ]  Run a deterministic test command and generate a review report.
-- [ ]  Add fixture tests for provider stream parsing and timeout/cancel behavior.
+- [x]  Eval harness and single-agent baseline (Arms A and D scaffolding) running on a public parallel-agent benchmark, with the pre-registration file committed.
+- [x]  Public-repo hygiene: license, README, [SECURITY.md](http://SECURITY.md), CONTRIBUTING with DCO sign-off, and CI running on recorded-event fixtures.
+- [x]  Run controller and provider adapter modules implemented in Rust + Tokio.
+- [x]  Preflight command for Git repo status, CLI versions, auth status where supported, and configured test commands.
+- [x]  Start one worker in an isolated worktree, capture structured events and exit status, produce a diff.
+- [x]  Run a deterministic test command and generate a review report.
+- [x]  Add fixture tests for provider stream parsing and timeout/cancel behavior.
 
 **Exit gate:** reliable single-agent supervision with no change to the original working tree, and a reproducible single-agent baseline result.
 
 ### Milestone 2 — Two workers and approved contracts
 
-- [ ]  Add second provider adapter.
-- [ ]  Define and validate `synapse-spec.json`.
-- [ ]  Human-approved contract, hash-locked contract tests, and ownership manifest.
-- [ ]  Per-worktree test-environment isolation (DB schema and port allocation) in preflight.
-- [ ]  Provision two worktrees from the same base commit and capture checkpoints.
-- [ ]  Detect out-of-partition modifications and contract drift.
-- [ ]  Integrate checkpoint snapshots in a staging worktree.
+- [x]  Add second provider adapter.
+- [x]  Define and validate `synapse-spec.json`.
+- [x]  Human-approved contract, hash-locked contract tests, and ownership manifest.
+- [x]  Per-worktree test-environment isolation (DB schema and port allocation) in preflight.
+- [x]  Provision two worktrees from the same base commit and capture checkpoints.
+- [x]  Detect out-of-partition modifications and contract drift.
+- [x]  Integrate checkpoint snapshots in a staging worktree.
 
 **Exit gate:** deterministic integration and complete artifact capture on representative TypeScript tasks.
 
 ### Milestone 3 — Verification, repair, and recovery
 
-- [ ]  Deterministic verification pipeline and structured check results.
-- [ ]  Independent model review and test suggestions; execute any proposed tests before counting them.
-- [ ]  Bounded repair loop with context packing and cost/time limits.
-- [ ]  Durable run state, cancellation, crash recovery, idempotent integration, and cleanup policy.
-- [ ]  Security tests for path traversal, symlinks, unsafe cleanup, secrets in logs, and out-of-partition writes.
+- [x]  Deterministic verification pipeline and structured check results.
+- [x]  Independent model review and test suggestions; execute any proposed tests before counting them.
+- [x]  Bounded repair loop with context packing and cost/time limits.
+- [x]  Durable run state, cancellation, crash recovery, idempotent integration, and cleanup policy.
+- [x]  Security tests for path traversal, symlinks, unsafe cleanup, secrets in logs, and out-of-partition writes.
 
 **Exit gate:** recoverable run with truthful evidence, no silent required-check failures, and safe final diff.
 
