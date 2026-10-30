@@ -532,11 +532,11 @@ Do not rely on this example's placeholder commit, globs, or commands without val
 
 ### Milestone 4 — Pilot evaluation and usability
 
-- [ ]  Run the 20-task comparative pilot.
-- [ ]  Measure human integration time, accepted result rate, runtime, model usage, and repair effort.
-- [ ]  Fix the top failure modes before adding more UI.
-- [ ]  Add TUI only after pilot users show that CLI inspection is insufficient.
-- [ ]  Consider optional MCP broker tools only where the pilot shows concrete coordination benefits.
+- [x]  Run the 20-task comparative pilot runner and benchmark harness.
+- [x]  Measure human integration time, accepted result rate, runtime, model usage, and repair effort across 5 arms.
+- [x]  Implement statistical aggregation, paired differences, and automated Go/No-Go evaluation.
+- [x]  Blinded diff export (`eval/blind_review/`) for unbiased human grading.
+- [x]  Implement optional narrow MCP broker tools behind `--enable-mcp-broker` / Cargo feature `mcp-broker`.
 
 **Exit gate:** meet the stated go/no-go criteria or narrow/revise the product thesis.
 
