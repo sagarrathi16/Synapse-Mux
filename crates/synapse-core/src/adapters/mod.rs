@@ -1,9 +1,11 @@
 pub mod claude;
+pub mod codex;
 pub mod mock;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use thiserror::Error;
 
@@ -101,6 +103,8 @@ pub struct WorkerRequest {
     pub max_turns: Option<u32>,
     pub max_budget_usd: Option<f64>,
     pub model: Option<String>,
+    #[serde(default)]
+    pub env_vars: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

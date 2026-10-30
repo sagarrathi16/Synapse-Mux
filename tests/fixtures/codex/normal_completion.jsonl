@@ -1,0 +1,5 @@
+{"type":"session_start","session_id":"codex-sess-001","model":"gpt-4o"}
+{"type":"message","role":"assistant","content":"I am implementing the repository layer according to the contract."}
+{"type":"token_usage","prompt_tokens":1400,"completion_tokens":420,"total_tokens":1820}
+{"type":"execution_complete","status":"success"}
+

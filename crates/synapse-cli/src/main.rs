@@ -3,7 +3,7 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 use synapse_core::git::GitManager;
-use synapse_core::runner::{Orchestrator, SingleWorkerOptions};
+use synapse_core::runner::{DualWorkerOptions, Orchestrator, SingleWorkerOptions};
 use tracing::{Level, info};
 use tracing_subscriber::FmtSubscriber;
 
@@ -35,19 +35,29 @@ enum Commands {
         repo: PathBuf,
     },
 
+    /// Contract management and approval
+    Contract {
+        #[command(subcommand)]
+        command: ContractCommands,
+    },
+
     /// Run orchestration workflow
     Run {
         /// Path to synapse-spec.json specification
         #[arg(short, long)]
         spec: Option<PathBuf>,
 
-        /// Run in single-agent baseline mode (Arm A / Arm D scaffolding)
-        #[arg(long, default_value_t = true)]
+        /// Run in single-agent baseline mode (Arms A/D)
+        #[arg(long)]
         single_agent: bool,
 
-        /// Provider adapter to invoke: "claude" or "mock"
+        /// Adapter for Claude worker: "claude" or "mock"
         #[arg(long, default_value = "claude")]
-        adapter: String,
+        claude_adapter: String,
+
+        /// Adapter for Codex worker: "codex" or "mock"
+        #[arg(long, default_value = "codex")]
+        codex_adapter: String,
 
         /// Task or feature prompt
         #[arg(short, long)]
@@ -61,6 +71,10 @@ enum Commands {
         #[arg(long, default_value = ".")]
         repo: PathBuf,
 
+        /// Explicit contract approval hash
+        #[arg(long)]
+        approve_hash: Option<String>,
+
         /// Path to recorded JSONL event fixture for mock execution
         #[arg(long)]
         mock_fixture: Option<PathBuf>,
@@ -72,6 +86,28 @@ enum Commands {
         /// Simulate worker timeout with mock adapter
         #[arg(long)]
         mock_timeout: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum ContractCommands {
+    /// Approve contract proposal for execution
+    Approve {
+        /// Run ID
+        #[arg(long)]
+        run_id: Option<String>,
+
+        /// Path to synapse-spec.json
+        #[arg(short, long, default_value = "synapse-spec.json")]
+        spec: PathBuf,
+
+        /// Explicit contract SHA-256 hash to approve
+        #[arg(long)]
+        approve_hash: Option<String>,
+
+        /// Path to repository root
+        #[arg(long, default_value = ".")]
+        repo: PathBuf,
     },
 }
 
@@ -142,49 +178,98 @@ async fn main() -> ExitCode {
                 }
             }
         }
+        Commands::Contract { command } => match command {
+            ContractCommands::Approve {
+                run_id,
+                spec,
+                approve_hash,
+                repo,
+            } => match Orchestrator::approve_contract(&repo, &spec, run_id, approve_hash).await {
+                Ok(hash) => {
+                    println!("\n=== Contract Approved Successfully ===");
+                    println!("Contract Hash: {hash}");
+                    println!("Status:        CONTRACT_APPROVAL");
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("\n=== Contract Approval Failed ===");
+                    eprintln!("{e}");
+                    ExitCode::FAILURE
+                }
+            },
+        },
         Commands::Run {
             spec,
             single_agent,
-            adapter,
+            claude_adapter,
+            codex_adapter,
             prompt,
             allow_dirty_with_snapshot,
             repo,
+            approve_hash,
             mock_fixture,
             mock_failure,
             mock_timeout,
         } => {
-            if !single_agent {
-                eprintln!(
-                    "Error: Multi-agent parallel mode is scheduled for Milestone 2. Pass --single-agent."
-                );
-                return ExitCode::FAILURE;
-            }
+            if single_agent {
+                let options = SingleWorkerOptions {
+                    spec_path: spec,
+                    run_id: None,
+                    prompt,
+                    allow_dirty_with_snapshot,
+                    adapter_name: claude_adapter,
+                    mock_fixture,
+                    mock_failure,
+                    mock_timeout,
+                    mock_file_writes: Vec::new(),
+                };
 
-            let options = SingleWorkerOptions {
-                spec_path: spec,
-                run_id: None,
-                prompt,
-                allow_dirty_with_snapshot,
-                adapter_name: adapter,
-                mock_fixture,
-                mock_failure,
-                mock_timeout,
-                mock_file_writes: Vec::new(),
-            };
-
-            match Orchestrator::run_single_agent(&repo, options).await {
-                Ok(report) => {
-                    println!("\n{}", report.to_markdown_string());
-                    if report.status == "REVIEW_READY" {
-                        ExitCode::SUCCESS
-                    } else {
+                match Orchestrator::run_single_agent(&repo, options).await {
+                    Ok(report) => {
+                        println!("\n{}", report.to_markdown_string());
+                        if report.status == "REVIEW_READY" {
+                            ExitCode::SUCCESS
+                        } else {
+                            ExitCode::FAILURE
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("\n=== Run Execution Failed ===");
+                        eprintln!("{e}");
                         ExitCode::FAILURE
                     }
                 }
-                Err(e) => {
-                    eprintln!("\n=== Run Execution Failed ===");
-                    eprintln!("{e}");
-                    ExitCode::FAILURE
+            } else {
+                let spec_path = spec.unwrap_or_else(|| repo.join("synapse-spec.json"));
+                let options = DualWorkerOptions {
+                    spec_path,
+                    run_id: None,
+                    allow_dirty_with_snapshot,
+                    claude_adapter_name: claude_adapter,
+                    codex_adapter_name: codex_adapter,
+                    claude_prompt: prompt.clone(),
+                    codex_prompt: prompt,
+                    claude_mock_fixture: mock_fixture.clone(),
+                    codex_mock_fixture: mock_fixture,
+                    claude_mock_file_writes: Vec::new(),
+                    codex_mock_file_writes: Vec::new(),
+                    approve_hash,
+                };
+
+                match Orchestrator::run_dual_agent(&repo, options).await {
+                    Ok(report) => {
+                        println!("\n{}", report.to_markdown_string());
+                        if report.status == "REVIEW_READY" {
+                            ExitCode::SUCCESS
+                        } else {
+                            ExitCode::FAILURE
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("\n=== Dual-Agent Run Execution Failed ===");
+                        eprintln!("{e}");
+                        ExitCode::FAILURE
+                    }
                 }
             }
         }

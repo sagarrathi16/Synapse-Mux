@@ -1,0 +1,5 @@
+{"type":"session_start","session_id":"codex-sess-003"}
+Invalid raw text line from unhandled buffer
+{"type":"unknown_codex_event_type","payload":"unexpected"}
+{"type":"execution_complete","status":"success"}
+

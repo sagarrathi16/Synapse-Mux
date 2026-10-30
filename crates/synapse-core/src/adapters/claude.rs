@@ -232,6 +232,10 @@ impl WorkerAdapter for ClaudeCodeAdapter {
         cmd.stderr(Stdio::piped());
         cmd.kill_on_drop(true); // Terminate child if supervisor handle is dropped
 
+        for (k, v) in &request.env_vars {
+            cmd.env(k, v);
+        }
+
         let mut child = cmd.spawn().map_err(AdapterError::Io)?;
 
         let stdout = child

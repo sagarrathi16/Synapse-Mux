@@ -260,7 +260,7 @@ impl GitManager {
         contract_hash: Option<&str>,
     ) -> Result<CheckpointArtifact, GitError> {
         let status_out = self
-            .run_git(&["status", "--porcelain"], Some(worktree_dir))
+            .run_git(&["status", "--porcelain", "-u"], Some(worktree_dir))
             .await?;
 
         let mut modified_files = Vec::new();
@@ -274,7 +274,7 @@ impl GitManager {
             }
             let index_status = &line[0..1];
             let worktree_status = &line[1..2];
-            let filename = line[2..].trim().to_string();
+            let filename = line[2..].trim().replace('\\', "/");
 
             if index_status == "?" || worktree_status == "?" {
                 untracked_files.push(filename);
@@ -346,6 +346,119 @@ impl GitManager {
             Ok(normalized)
         }
     }
+
+    pub async fn commit_worktree(
+        &self,
+        worktree_dir: &Path,
+        commit_message: &str,
+    ) -> Result<String, GitError> {
+        self.run_git(&["add", "-A"], Some(worktree_dir)).await?;
+        self.run_git(
+            &["commit", "-m", commit_message, "--allow-empty"],
+            Some(worktree_dir),
+        )
+        .await?;
+        self.run_git(&["rev-parse", "HEAD"], Some(worktree_dir))
+            .await
+    }
+
+    pub async fn update_ref(&self, ref_name: &str, commit_sha: &str) -> Result<(), GitError> {
+        self.run_git(&["update-ref", ref_name, commit_sha], None)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn merge_ref(
+        &self,
+        worktree_dir: &Path,
+        ref_name: &str,
+        commit_message: &str,
+    ) -> Result<MergeResult, GitError> {
+        let merge_res = self
+            .run_git(
+                &["merge", "--no-ff", "-m", commit_message, ref_name],
+                Some(worktree_dir),
+            )
+            .await;
+
+        match merge_res {
+            Ok(_) => Ok(MergeResult::Success),
+            Err(e) => {
+                // Check if merge failed due to conflict
+                let conflict_files_out = self
+                    .run_git(
+                        &["diff", "--name-only", "--diff-filter=U"],
+                        Some(worktree_dir),
+                    )
+                    .await
+                    .unwrap_or_default();
+
+                let mut conflicting_files = Vec::new();
+                for f in conflict_files_out.lines() {
+                    let trimmed = f.trim();
+                    if !trimmed.is_empty() {
+                        conflicting_files.push(trimmed.replace('\\', "/"));
+                    }
+                }
+
+                if !conflicting_files.is_empty() {
+                    let conflict_diff = self
+                        .run_git(&["diff"], Some(worktree_dir))
+                        .await
+                        .unwrap_or_default();
+
+                    Ok(MergeResult::Conflict {
+                        conflicting_files,
+                        conflict_diff,
+                    })
+                } else {
+                    Err(e)
+                }
+            }
+        }
+    }
+
+    pub async fn checkout_file(
+        &self,
+        worktree_dir: &Path,
+        ref_name: &str,
+        file_path: &str,
+    ) -> Result<(), GitError> {
+        self.run_git(&["checkout", ref_name, "--", file_path], Some(worktree_dir))
+            .await?;
+        Ok(())
+    }
+
+    pub async fn get_file_diff(
+        &self,
+        worktree_dir: &Path,
+        file_path: &str,
+    ) -> Result<String, GitError> {
+        self.run_git(&["diff", "HEAD", "--", file_path], Some(worktree_dir))
+            .await
+    }
+
+    pub fn set_files_readonly(worktree_dir: &Path, files: &[String]) -> Result<(), std::io::Error> {
+        for rel in files {
+            let full = worktree_dir.join(rel);
+            if full.exists() {
+                let mut perms = std::fs::metadata(&full)?.permissions();
+                #[allow(clippy::permissions_set_readonly_false)]
+                perms.set_readonly(true);
+                std::fs::set_permissions(&full, perms)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MergeResult {
+    Success,
+    Conflict {
+        conflicting_files: Vec<String>,
+        conflict_diff: String,
+    },
 }
 
 #[cfg(test)]
