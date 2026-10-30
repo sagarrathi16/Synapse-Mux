@@ -22,3 +22,4 @@ npx synapse-mux run --prompt "Implement stripe checkout and postgres webhook han
 - **Contract-First Safety:** Hard gates all shared interfaces and schema types before parallel execution begins.
 - **7-Step Verification Pipeline:** Typecheck (`tsc --noEmit` / `cargo check`), contract tests, and cross-model code review.
 - **Editor Agnostic:** Works with Cursor, VS Code, JetBrains, Zed, Neovim, or standard terminal.
+
