@@ -158,11 +158,19 @@ pub fn validate_path_in_root(
     let path = path.as_ref();
     let root = root.as_ref();
 
+    let path_str = path.to_string_lossy();
+    // Normalize backslashes to forward slashes for cross-platform component checking
+    let normalized_path_str = path_str.replace('\\', "/");
+    let check_path = Path::new(&normalized_path_str);
+
+    let has_win_drive = normalized_path_str.len() >= 2
+        && normalized_path_str.as_bytes()[1] == b':'
+        && normalized_path_str.as_bytes()[0].is_ascii_alphabetic();
+
     // Check for explicit .. traversal components
-    for comp in path.components() {
+    for comp in check_path.components() {
         if comp == Component::ParentDir {
-            // Check if relative traversal escapes root
-            let combined = root.join(path);
+            let combined = root.join(check_path);
             let normalized = normalize_path(&combined);
             let norm_root = normalize_path(root);
             if !normalized.starts_with(&norm_root) {
@@ -174,10 +182,19 @@ pub fn validate_path_in_root(
         }
     }
 
-    let combined = if path.is_absolute() {
-        path.to_path_buf()
+    let is_absolute =
+        check_path.is_absolute() || normalized_path_str.starts_with('/') || has_win_drive;
+
+    let combined = if is_absolute {
+        if has_win_drive && !cfg!(windows) {
+            return Err(SecurityError::PathTraversalDetected {
+                path: path.to_string_lossy().to_string(),
+                root: root.to_string_lossy().to_string(),
+            });
+        }
+        check_path.to_path_buf()
     } else {
-        root.join(path)
+        root.join(check_path)
     };
 
     let normalized = normalize_path(&combined);
@@ -205,7 +222,15 @@ pub fn validate_path_in_root(
             .replace(r"\\?\", "")
             .replace('\\', "/");
 
-        if !canon_str.starts_with(&root_str) {
+        let norm_root_prefix = if root_str.ends_with('/') {
+            root_str
+        } else {
+            format!("{root_str}/")
+        };
+
+        if canon_str != norm_root_prefix.trim_end_matches('/')
+            && !canon_str.starts_with(&norm_root_prefix)
+        {
             return Err(SecurityError::SymlinkEscapesRoot {
                 path: path.to_string_lossy().to_string(),
                 target: canonical.to_string_lossy().to_string(),
@@ -220,13 +245,33 @@ pub fn validate_path_in_root(
 /// Lexically normalizes a path without touching the filesystem.
 pub fn normalize_path(path: &Path) -> PathBuf {
     let mut normalized = PathBuf::new();
+    let mut has_root = false;
+
     for comp in path.components() {
         match comp {
             Component::Prefix(p) => normalized.push(p.as_os_str()),
-            Component::RootDir => normalized.push(Component::RootDir.as_os_str()),
+            Component::RootDir => {
+                has_root = true;
+                normalized.push(Component::RootDir.as_os_str());
+            }
             Component::CurDir => {}
             Component::ParentDir => {
-                normalized.pop();
+                if let Some(last) = normalized.components().next_back() {
+                    match last {
+                        Component::Normal(_) => {
+                            normalized.pop();
+                        }
+                        Component::ParentDir => {
+                            normalized.push("..");
+                        }
+                        Component::RootDir | Component::Prefix(_) => {
+                            // Cannot pop above root/prefix
+                        }
+                        Component::CurDir => {}
+                    }
+                } else if !has_root {
+                    normalized.push("..");
+                }
             }
             Component::Normal(c) => normalized.push(c),
         }
@@ -319,6 +364,20 @@ mod tests {
         let win_escape = validate_path_in_root(r"..\..\Windows\System32", root);
         assert!(matches!(
             win_escape,
+            Err(SecurityError::PathTraversalDetected { .. })
+        ));
+
+        // Absolute path escape
+        let abs_escape = validate_path_in_root("/etc/passwd", root);
+        assert!(matches!(
+            abs_escape,
+            Err(SecurityError::PathTraversalDetected { .. })
+        ));
+
+        // Windows drive escape
+        let drive_escape = validate_path_in_root(r"C:\Windows\System32", root);
+        assert!(matches!(
+            drive_escape,
             Err(SecurityError::PathTraversalDetected { .. })
         ));
     }
