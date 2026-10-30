@@ -119,6 +119,7 @@ enum Commands {
     },
 
     /// Clean up generated worktrees safely
+    #[command(alias = "clean")]
     Cleanup {
         /// Run ID to clean up
         #[arg(long)]
@@ -127,6 +128,21 @@ enum Commands {
         /// Keep run artifacts in .synapse/runs/<run_id>/
         #[arg(long, default_value_t = true)]
         keep_artifacts: bool,
+
+        /// Path to repository root
+        #[arg(long, default_value = ".")]
+        repo: PathBuf,
+    },
+
+    /// Export a secret-redacted, code-stripped diagnostic bundle for open-source bug reports
+    DiagnosticBundle {
+        /// Run ID to export bundle for
+        #[arg(long)]
+        run_id: String,
+
+        /// Destination path for exported diagnostic JSON file
+        #[arg(short, long)]
+        output: Option<PathBuf>,
 
         /// Path to repository root
         #[arg(long, default_value = ".")]
@@ -378,6 +394,27 @@ async fn main() -> ExitCode {
                 }
                 Err(e) => {
                     eprintln!("\n=== Failed to Cleanup Run ===");
+                    eprintln!("{e}");
+                    ExitCode::FAILURE
+                }
+            }
+        }
+        Commands::DiagnosticBundle {
+            run_id,
+            output,
+            repo,
+        } => {
+            info!("Exporting redacted diagnostic bundle for run '{}'", run_id);
+            match Orchestrator::export_diagnostic_bundle(&repo, &run_id, output).await {
+                Ok(path) => {
+                    println!("\n=== Diagnostic Bundle Exported ===");
+                    println!("Bundle Path: {}", path.display());
+                    println!("All secrets and tokens have been automatically redacted.");
+                    println!("Source code is stripped for safe open-source issue reporting.");
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("\n=== Failed to Export Diagnostic Bundle ===");
                     eprintln!("{e}");
                     ExitCode::FAILURE
                 }

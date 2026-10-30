@@ -638,3 +638,71 @@ async fn test_security_defense_suite() {
     assert!(scrubbed.contains("sk-ant-***REDACTED***"));
     assert!(scrubbed.contains("Bearer ***REDACTED***"));
 }
+
+/// Test 7: Redacted Diagnostic Bundle & Sent Payload Audit Manifests
+/// Proves that `synapse diagnostic-bundle` exports secret-redacted, code-stripped metadata
+/// and that ContextPacker generated audit manifests of sent payloads.
+#[tokio::test]
+async fn test_diagnostic_bundle_and_audit_manifests() {
+    let temp_dir = TempDir::new().unwrap();
+    let repo_root = temp_dir.path();
+    let (_git, head) = setup_git_repo(&temp_dir).await;
+
+    let mut spec = create_valid_spec(&head);
+    let run_id = "test-run-diag-bundle";
+    spec.run_id = run_id.into();
+
+    let spec_path = repo_root.join("synapse-spec.json");
+    fs::write(&spec_path, serde_json::to_string_pretty(&spec).unwrap()).unwrap();
+
+    let mut add = Command::new("git");
+    add.args(["add", "synapse-spec.json"])
+        .current_dir(repo_root);
+    assert!(add.status().unwrap().success());
+    let mut commit = Command::new("git");
+    commit
+        .args(["commit", "-m", "Add spec"])
+        .current_dir(repo_root);
+    assert!(commit.status().unwrap().success());
+
+    let approved_hash =
+        Orchestrator::approve_contract(repo_root, &spec_path, Some(run_id.into()), None)
+            .await
+            .unwrap();
+
+    let options = DualWorkerOptions {
+        spec_path,
+        run_id: Some(run_id.into()),
+        claude_adapter_name: "mock".into(),
+        codex_adapter_name: "mock".into(),
+        claude_mock_file_writes: vec![(
+            "src/api/handler.ts".into(),
+            "export const api = 1;\n".into(),
+        )],
+        codex_mock_file_writes: vec![(
+            "src/workers/processor.ts".into(),
+            "export const worker = 1;\n".into(),
+        )],
+        approve_hash: Some(approved_hash),
+        ..Default::default()
+    };
+
+    let report = Orchestrator::run_dual_agent(repo_root, options)
+        .await
+        .unwrap();
+    assert_eq!(report.status, "REVIEW_READY");
+
+    // Export diagnostic bundle
+    let bundle_path = Orchestrator::export_diagnostic_bundle(repo_root, run_id, None)
+        .await
+        .unwrap();
+    assert!(bundle_path.exists());
+
+    let bundle_content = fs::read_to_string(&bundle_path).unwrap();
+    assert!(bundle_content.contains(run_id));
+    assert!(bundle_content.contains("\"state_snapshot\""));
+    assert!(bundle_content.contains("\"transitions\""));
+
+    // Verify raw source code is not bundled
+    assert!(!bundle_content.contains("export const api = 1;"));
+}

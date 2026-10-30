@@ -1,6 +1,7 @@
 pub mod adapters;
 pub mod check;
 pub mod config;
+pub mod context_packer;
 pub mod git;
 pub mod manifest;
 pub mod recovery;
@@ -11,3 +12,4 @@ pub mod runner;
 pub mod security;
 pub mod state;
 pub mod verifier;
+pub mod verify;

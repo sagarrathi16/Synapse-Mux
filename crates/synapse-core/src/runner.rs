@@ -1067,6 +1067,41 @@ impl Orchestrator {
                 .run_git(&["diff", &base_commit], Some(&wt_stage))
                 .await
                 .unwrap_or_default();
+
+            // Capture individual worker partition diffs for cross-model review
+            // (Codex reviews Claude's partition; Claude reviews Codex's partition)
+            let claude_diff = git_mgr
+                .run_git(&["diff", &base_commit], Some(&wta_dir))
+                .await
+                .unwrap_or_default();
+            let codex_diff = git_mgr
+                .run_git(&["diff", &base_commit], Some(&wtb_dir))
+                .await
+                .unwrap_or_default();
+
+            let _ = crate::context_packer::ContextPacker::pack_cross_review_payload(
+                &run_id,
+                "codex",
+                "openai",
+                "claude",
+                &claude_diff,
+                &spec,
+                &computed_hash,
+                spec.limits.context_bundle_max_bytes,
+                store.run_dir(),
+            );
+            let _ = crate::context_packer::ContextPacker::pack_cross_review_payload(
+                &run_id,
+                "claude",
+                "anthropic",
+                "codex",
+                &codex_diff,
+                &spec,
+                &computed_hash,
+                spec.limits.context_bundle_max_bytes,
+                store.run_dir(),
+            );
+
             let res = rev
                 .perform_review(&staging_diff, &spec.contract_files, &spec, &wt_stage)
                 .await?;
@@ -1138,18 +1173,24 @@ impl Orchestrator {
                     .map(|r| r.findings.as_slice())
                     .unwrap_or(&[]);
 
-                let repair_bundle = ContextFirewall::assemble_repair_bundle(
+                let repair_bundle = crate::context_packer::ContextPacker::pack_repair_bundle(
                     &run_id,
                     repair_iteration,
                     max_repair_iters,
                     worker_name,
+                    if worker_name == "claude" {
+                        "anthropic"
+                    } else {
+                        "openai"
+                    },
                     &computed_hash,
                     &spec,
                     &worker_diff,
                     &verification_report.failed_checks,
                     findings,
                     spec.limits.context_bundle_max_bytes,
-                );
+                    store.run_dir(),
+                )?;
 
                 let bundle_filename = format!(
                     "repair_context_iter_{}_{}.json",
@@ -1364,18 +1405,27 @@ impl Orchestrator {
                 Some("Dual-agent run integrated and verified successfully".into()),
             )?;
         } else {
-            let terminal_state = if repair_iteration >= max_repair_iters {
-                RunState::NeedsUser
+            let (terminal_state, reason) = if repair_iteration >= max_repair_iters {
+                (
+                    RunState::NeedsUser,
+                    format!(
+                        "MaxRepairsExceeded: verification failed after {} repair iterations",
+                        repair_iteration
+                    ),
+                )
             } else {
-                RunState::Failed
+                (
+                    RunState::Failed,
+                    format!(
+                        "Verification gate failed: {}",
+                        verification_report.diagnostics_summary
+                    ),
+                )
             };
             store.transition_to(
                 terminal_state,
                 vec!["report.json".into(), "report.md".into()],
-                TransitionOutcome::Failure(format!(
-                    "Verification gate failed after {} repair iterations",
-                    repair_iteration
-                )),
+                TransitionOutcome::Failure(reason),
                 Some("Verification gate failed".into()),
             )?;
         }
@@ -1541,5 +1591,13 @@ impl Orchestrator {
         keep_artifacts: bool,
     ) -> Result<CleanupSummary, RunnerError> {
         RecoveryManager::cleanup_run(repo_root, run_id, keep_artifacts).await
+    }
+
+    pub async fn export_diagnostic_bundle(
+        repo_root: impl AsRef<Path>,
+        run_id: &str,
+        output_path: Option<PathBuf>,
+    ) -> Result<PathBuf, RunnerError> {
+        RecoveryManager::export_diagnostic_bundle(repo_root, run_id, output_path).await
     }
 }

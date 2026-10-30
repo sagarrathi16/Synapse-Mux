@@ -1,12 +1,33 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
 use crate::git::GitManager;
 use crate::runner::RunnerError;
+use crate::security::scrub_json;
 use crate::state::{RunState, RunStore, TransitionOutcome};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkerProcessRecord {
+    pub worker_name: String,
+    pub pid: u32,
+    pub started_at: String,
+    pub worktree_dir: PathBuf,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiagnosticBundle {
+    pub run_id: String,
+    pub created_at: String,
+    pub state_snapshot: Option<serde_json::Value>,
+    pub transitions: Vec<serde_json::Value>,
+    pub verification_checks: Option<serde_json::Value>,
+    pub audit_manifests: Vec<serde_json::Value>,
+    pub os: String,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RunInspection {
@@ -212,6 +233,98 @@ impl RecoveryManager {
             pruned_git_worktrees: true,
             artifacts_kept: keep_artifacts,
         })
+    }
+
+    /// Records worker process info for startup recovery and orphan detection
+    pub fn record_worker_process(
+        repo_root: impl AsRef<Path>,
+        run_id: &str,
+        record: &WorkerProcessRecord,
+    ) -> Result<(), RunnerError> {
+        let store = RunStore::new(repo_root.as_ref(), run_id)?;
+        let filename = format!("process_{}.json", record.worker_name);
+        store.save_artifact(&filename, serde_json::to_string_pretty(record)?.as_bytes())?;
+        Ok(())
+    }
+
+    /// Exports a secret-redacted, code-stripped diagnostic bundle for open-source bug reports.
+    /// Strictly adheres to PRD Section 7: excludes raw source code while retaining metadata and sanitized logs.
+    pub async fn export_diagnostic_bundle(
+        repo_root: impl AsRef<Path>,
+        run_id: &str,
+        output_path: Option<PathBuf>,
+    ) -> Result<PathBuf, RunnerError> {
+        let repo_root = repo_root.as_ref();
+        let store = RunStore::new(repo_root, run_id)?;
+
+        let state_snapshot = store
+            .load_state_snapshot()
+            .ok()
+            .and_then(|s| serde_json::to_value(s).ok())
+            .map(|mut v| {
+                scrub_json(&mut v);
+                v
+            });
+
+        let mut transitions = Vec::new();
+        if let Ok(content) = fs::read_to_string(store.run_dir().join("transitions.jsonl")) {
+            for line in content.lines() {
+                if let Ok(mut val) = serde_json::from_str::<serde_json::Value>(line) {
+                    scrub_json(&mut val);
+                    transitions.push(val);
+                }
+            }
+        }
+
+        let checks_file = store.artifacts_dir().join("checks.json");
+        let verification_checks = if checks_file.exists() {
+            fs::read_to_string(&checks_file)
+                .ok()
+                .and_then(|c| serde_json::from_str::<serde_json::Value>(&c).ok())
+                .map(|mut v| {
+                    scrub_json(&mut v);
+                    v
+                })
+        } else {
+            None
+        };
+
+        let audit_dir = store.run_dir().join("audit");
+        let mut audit_manifests = Vec::new();
+        if audit_dir.exists()
+            && let Ok(entries) = fs::read_dir(&audit_dir)
+        {
+            for entry in entries.flatten() {
+                if let Ok(content) = fs::read_to_string(entry.path())
+                    && let Ok(mut val) = serde_json::from_str::<serde_json::Value>(&content)
+                {
+                    scrub_json(&mut val);
+                    audit_manifests.push(val);
+                }
+            }
+        }
+
+        let bundle = DiagnosticBundle {
+            run_id: run_id.to_string(),
+            created_at: Utc::now().to_rfc3339(),
+            state_snapshot,
+            transitions,
+            verification_checks,
+            audit_manifests,
+            os: std::env::consts::OS.to_string(),
+        };
+
+        let target_path =
+            output_path.unwrap_or_else(|| store.run_dir().join("diagnostic_bundle.json"));
+
+        if let Some(p) = target_path.parent() {
+            fs::create_dir_all(p)?;
+        }
+
+        fs::write(&target_path, serde_json::to_string_pretty(&bundle)?)?;
+        info!("Diagnostic bundle exported to {:?}", target_path);
+
+        Ok(target_path)
     }
 }
 
