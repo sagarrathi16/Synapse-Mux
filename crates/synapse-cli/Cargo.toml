@@ -20,6 +20,8 @@ anyhow.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 chrono.workspace = true
+colored.workspace = true
+indicatif.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
