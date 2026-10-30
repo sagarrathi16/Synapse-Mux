@@ -19,8 +19,12 @@ use crate::adapters::{AgentEvent, ObservedUsage, WorkerAdapter, WorkerRequest};
 use crate::check::{CheckRunner, CheckStatus};
 use crate::git::{GitError, GitManager, MergeResult};
 use crate::manifest::{ManifestError, SynapseSpec};
+use crate::recovery::{CleanupSummary, RecoveryManager};
+use crate::repair::ContextFirewall;
 use crate::report::{EvidenceReport, TelemetryReport};
+use crate::review::{ReviewReport, Reviewer};
 use crate::state::{RunState, RunStore, StateError, TransitionOutcome};
+use crate::verifier::VerificationPipeline;
 
 #[derive(Error, Debug)]
 pub enum RunnerError {
@@ -32,6 +36,12 @@ pub enum RunnerError {
     Manifest(#[from] ManifestError),
     #[error("Adapter error: {0}")]
     Adapter(#[from] crate::adapters::AdapterError),
+    #[error("Check error: {0}")]
+    Check(#[from] crate::check::CheckError),
+    #[error("Review error: {0}")]
+    Review(#[from] crate::review::ReviewError),
+    #[error("Security error: {0}")]
+    Security(#[from] crate::security::SecurityError),
     #[error("Serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
     #[error("IO error: {0}")]
@@ -75,7 +85,7 @@ impl Default for SingleWorkerOptions {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct DualWorkerOptions {
     pub spec_path: PathBuf,
     pub run_id: Option<String>,
@@ -89,6 +99,27 @@ pub struct DualWorkerOptions {
     pub claude_mock_file_writes: Vec<(String, String)>,
     pub codex_mock_file_writes: Vec<(String, String)>,
     pub approve_hash: Option<String>,
+    pub reviewer: Option<Arc<dyn Reviewer>>,
+    pub repair_mock_file_writes: Vec<(String, String)>,
+    pub max_repair_iterations: Option<usize>,
+}
+
+impl std::fmt::Debug for DualWorkerOptions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DualWorkerOptions")
+            .field("spec_path", &self.spec_path)
+            .field("run_id", &self.run_id)
+            .field("allow_dirty_with_snapshot", &self.allow_dirty_with_snapshot)
+            .field("claude_adapter_name", &self.claude_adapter_name)
+            .field("codex_adapter_name", &self.codex_adapter_name)
+            .field("has_reviewer", &self.reviewer.is_some())
+            .field(
+                "repair_mock_file_writes_count",
+                &self.repair_mock_file_writes.len(),
+            )
+            .field("max_repair_iterations", &self.max_repair_iterations)
+            .finish()
+    }
 }
 
 impl Default for DualWorkerOptions {
@@ -106,6 +137,9 @@ impl Default for DualWorkerOptions {
             claude_mock_file_writes: Vec::new(),
             codex_mock_file_writes: Vec::new(),
             approve_hash: None,
+            reviewer: None,
+            repair_mock_file_writes: Vec::new(),
+            max_repair_iterations: None,
         }
     }
 }
@@ -463,6 +497,9 @@ impl Orchestrator {
             unified_diff: checkpoint.unified_diff,
             checks: check_results,
             all_required_checks_passed: all_required_passed,
+            review_findings: Vec::new(),
+            executed_adversarial_checks: Vec::new(),
+            repair_iterations_count: 0,
             telemetry: TelemetryReport {
                 observed_usage,
                 estimated_cost_usd: estimated_cost,
@@ -712,7 +749,7 @@ impl Orchestrator {
             max_turns: Some(30),
             max_budget_usd: Some(5.0),
             model: Some("claude-3-7-sonnet".into()),
-            env_vars: env_claude,
+            env_vars: env_claude.clone(),
         };
 
         let req_codex = WorkerRequest {
@@ -724,7 +761,7 @@ impl Orchestrator {
             max_turns: Some(30),
             max_budget_usd: Some(5.0),
             model: Some("gpt-4o".into()),
-            env_vars: env_codex,
+            env_vars: env_codex.clone(),
         };
 
         // 5. Run workers concurrently
@@ -1018,25 +1055,226 @@ impl Orchestrator {
             Some("Running deterministic verification suite against staging worktree".into()),
         )?;
 
-        let check_results = CheckRunner::run_all(&spec.verification_commands, &wt_stage).await;
-        let all_required_passed = check_results
+        let mut verification_report =
+            VerificationPipeline::verify_staging(&wt_stage, repo_root, &spec, Some(&computed_hash))
+                .await?;
+
+        // Independent Model Review & proposed adversarial tests (PRD Section 6 FR-6)
+        let mut review_report: Option<ReviewReport> = None;
+        let mut adversarial_results = Vec::new();
+        if let Some(ref rev) = options.reviewer {
+            let staging_diff = git_mgr
+                .run_git(&["diff", &base_commit], Some(&wt_stage))
+                .await
+                .unwrap_or_default();
+            let res = rev
+                .perform_review(&staging_diff, &spec.contract_files, &spec, &wt_stage)
+                .await?;
+            adversarial_results = res.executed_adversarial_results.clone();
+            review_report = Some(res);
+        }
+
+        let mut all_adversarial_passed = adversarial_results
             .iter()
             .filter(|c| c.required)
             .all(|c| c.status == CheckStatus::Passed);
 
         store.save_artifact(
             "checks.json",
-            serde_json::to_string_pretty(&check_results)?.as_bytes(),
+            serde_json::to_string_pretty(&verification_report.check_results)?.as_bytes(),
         )?;
+        if let Some(ref rev) = review_report {
+            store.save_artifact("review.json", serde_json::to_string_pretty(rev)?.as_bytes())?;
+        }
+
+        // 10. Bounded Repair Loop (PRD Section 6 FR-7)
+        let mut repair_iteration = 0;
+        let max_repair_iters = options
+            .max_repair_iterations
+            .unwrap_or(spec.limits.max_repair_iterations);
+
+        let mut current_wt_stage = wt_stage;
+
+        while (!verification_report.all_required_passed || !all_adversarial_passed)
+            && repair_iteration < max_repair_iters
+        {
+            repair_iteration += 1;
+            info!(
+                "Entering Repair Loop (iteration {} of {})",
+                repair_iteration, max_repair_iters
+            );
+
+            let responsible_workers = ContextFirewall::determine_responsible_workers(
+                &verification_report.failed_checks,
+                &spec,
+            );
+
+            store.transition_to(
+                RunState::Repair,
+                vec!["checks.json".into()],
+                TransitionOutcome::Success,
+                Some(format!(
+                    "Repair iteration {} of {} targeting: {}",
+                    repair_iteration,
+                    max_repair_iters,
+                    responsible_workers.join(", ")
+                )),
+            )?;
+
+            for worker_name in &responsible_workers {
+                let (worker_dir, adapter) = if worker_name == "claude" {
+                    (&wta_dir, &adapter_claude)
+                } else {
+                    (&wtb_dir, &adapter_codex)
+                };
+
+                let worker_diff = git_mgr
+                    .run_git(&["diff", &base_commit], Some(worker_dir))
+                    .await
+                    .unwrap_or_default();
+
+                let findings = review_report
+                    .as_ref()
+                    .map(|r| r.findings.as_slice())
+                    .unwrap_or(&[]);
+
+                let repair_bundle = ContextFirewall::assemble_repair_bundle(
+                    &run_id,
+                    repair_iteration,
+                    max_repair_iters,
+                    worker_name,
+                    &computed_hash,
+                    &spec,
+                    &worker_diff,
+                    &verification_report.failed_checks,
+                    findings,
+                    spec.limits.context_bundle_max_bytes,
+                );
+
+                let bundle_filename = format!(
+                    "repair_context_iter_{}_{}.json",
+                    repair_iteration, worker_name
+                );
+                store.save_artifact(
+                    &bundle_filename,
+                    serde_json::to_string_pretty(&repair_bundle)?.as_bytes(),
+                )?;
+
+                let repair_prompt = repair_bundle.format_prompt();
+
+                let (tx, mut rx) = mpsc::channel(50);
+                let log_sink = tokio::spawn(async move { while rx.recv().await.is_some() {} });
+
+                let repair_req = WorkerRequest {
+                    run_id: run_id.clone(),
+                    worker_name: worker_name.clone(),
+                    prompt: repair_prompt,
+                    worktree_dir: worker_dir.clone(),
+                    timeout_seconds: spec.limits.worker_timeout_seconds,
+                    max_turns: Some(15),
+                    max_budget_usd: Some(2.0),
+                    model: None,
+                    env_vars: if worker_name == "claude" {
+                        env_claude.clone()
+                    } else {
+                        env_codex.clone()
+                    },
+                };
+
+                let _ = adapter.run_worker(repair_req, tx).await;
+                let _ = log_sink.await;
+
+                // Apply any test repair writes if configured in options
+                for (rel_path, content) in &options.repair_mock_file_writes {
+                    let target = worker_dir.join(rel_path);
+                    if let Some(p) = target.parent() {
+                        let _ = fs::create_dir_all(p);
+                    }
+                    let _ = fs::write(target, content);
+                }
+
+                // Commit repair in worker worktree and update checkpoint ref
+                let sha = git_mgr
+                    .commit_worktree(
+                        worker_dir,
+                        &format!("synapse: repair iter {} {}", repair_iteration, worker_name),
+                    )
+                    .await?;
+                let ref_name = format!("refs/synapse/{}/checkpoint-{}", run_id, worker_name);
+                git_mgr.update_ref(&ref_name, &sha).await?;
+            }
+
+            // Re-provision WT_STAGE and re-merge checkpoints
+            let _ = git_mgr.remove_worktree(&current_wt_stage).await;
+            current_wt_stage = git_mgr
+                .create_worktree(&run_id, "stage", &base_commit)
+                .await?;
+
+            let _ = git_mgr
+                .merge_ref(
+                    &current_wt_stage,
+                    &ref_claude,
+                    "synapse: integrate repair claude",
+                )
+                .await?;
+            let _ = git_mgr
+                .merge_ref(
+                    &current_wt_stage,
+                    &ref_codex,
+                    "synapse: integrate repair codex",
+                )
+                .await?;
+
+            for (file, rule) in &spec.shared_file_policy {
+                if rule.resolution.as_deref() == Some("regenerate") {
+                    let _ = git_mgr.checkout_file(&current_wt_stage, "HEAD", file).await;
+                }
+            }
+
+            // Re-verify staging
+            let _ = store.transition_to(
+                RunState::Verification,
+                vec![],
+                TransitionOutcome::Success,
+                Some(format!(
+                    "Re-verifying staging worktree after repair iteration {}",
+                    repair_iteration
+                )),
+            );
+
+            verification_report = VerificationPipeline::verify_staging(
+                &current_wt_stage,
+                repo_root,
+                &spec,
+                Some(&computed_hash),
+            )
+            .await?;
+
+            if let Some(ref rev) = review_report {
+                let executed = crate::review::execute_adversarial_tests(
+                    &current_wt_stage,
+                    &rev.proposed_tests,
+                )
+                .await?;
+                all_adversarial_passed = executed
+                    .iter()
+                    .filter(|c| c.required)
+                    .all(|c| c.status == CheckStatus::Passed);
+                adversarial_results = executed;
+            }
+        }
 
         // Capture unified staging diff against base_commit
         let staging_diff = git_mgr
-            .run_git(&["diff", &base_commit], Some(&wt_stage))
+            .run_git(&["diff", &base_commit], Some(&current_wt_stage))
             .await
             .unwrap_or_default();
 
         let diff_names_out = git_mgr
-            .run_git(&["diff", "--name-only", &base_commit], Some(&wt_stage))
+            .run_git(
+                &["diff", "--name-only", &base_commit],
+                Some(&current_wt_stage),
+            )
             .await
             .unwrap_or_default();
 
@@ -1048,14 +1286,17 @@ impl Orchestrator {
             }
         }
 
-        // 10. Clean up worktrees
+        // Clean up worktrees
         let _ = git_mgr.remove_worktree(&wta_dir).await;
         let _ = git_mgr.remove_worktree(&wtb_dir).await;
-        let _ = git_mgr.remove_worktree(&wt_stage).await;
+        let _ = git_mgr.remove_worktree(&current_wt_stage).await;
 
         let completed_at = Utc::now();
         let duration_seconds = start_time.elapsed().as_secs_f64();
-        let overall_success = claude_ok && codex_ok && all_required_passed;
+        let overall_success = claude_ok
+            && codex_ok
+            && verification_report.all_required_passed
+            && all_adversarial_passed;
 
         let total_observed_usage = ObservedUsage {
             input_tokens: claude_usage.input_tokens + codex_usage.input_tokens,
@@ -1082,8 +1323,15 @@ impl Orchestrator {
             duration_seconds,
             changed_files,
             unified_diff: staging_diff,
-            checks: check_results,
-            all_required_checks_passed: all_required_passed,
+            checks: verification_report.check_results,
+            all_required_checks_passed: verification_report.all_required_passed
+                && all_adversarial_passed,
+            review_findings: review_report
+                .as_ref()
+                .map(|r| r.findings.clone())
+                .unwrap_or_default(),
+            executed_adversarial_checks: adversarial_results,
+            repair_iterations_count: repair_iteration,
             telemetry: TelemetryReport {
                 observed_usage: total_observed_usage,
                 estimated_cost_usd: claude_cost + codex_cost,
@@ -1099,7 +1347,8 @@ impl Orchestrator {
             } else {
                 vec![
                     "Inspect failed verification checks in report.md".into(),
-                    "Trigger bounded repair loop on responsible partition".into(),
+                    "Trigger bounded repair loop on responsible partition or resolve manually"
+                        .into(),
                 ]
             },
         };
@@ -1115,14 +1364,182 @@ impl Orchestrator {
                 Some("Dual-agent run integrated and verified successfully".into()),
             )?;
         } else {
+            let terminal_state = if repair_iteration >= max_repair_iters {
+                RunState::NeedsUser
+            } else {
+                RunState::Failed
+            };
             store.transition_to(
-                RunState::Failed,
+                terminal_state,
                 vec!["report.json".into(), "report.md".into()],
-                TransitionOutcome::Failure("One or more required checks failed in staging".into()),
+                TransitionOutcome::Failure(format!(
+                    "Verification gate failed after {} repair iterations",
+                    repair_iteration
+                )),
                 Some("Verification gate failed".into()),
             )?;
         }
 
         Ok(report)
+    }
+
+    pub async fn resume_dual_agent(
+        repo_root: impl AsRef<Path>,
+        options: DualWorkerOptions,
+    ) -> Result<EvidenceReport, RunnerError> {
+        let repo_root = repo_root.as_ref();
+        let spec = SynapseSpec::from_file(&options.spec_path)?;
+        let run_id = options
+            .run_id
+            .clone()
+            .unwrap_or_else(|| spec.run_id.clone());
+
+        let inspection = RecoveryManager::inspect_run(repo_root, &run_id).await?;
+        if !inspection.can_resume {
+            return Err(RunnerError::ExecutionFailed(format!(
+                "Cannot resume run '{}': {}",
+                run_id, inspection.reason
+            )));
+        }
+
+        if inspection.reconciliation_required {
+            return Err(RunnerError::ExecutionFailed(format!(
+                "Repository HEAD has diverged from base commit {:?}. Manual reconciliation required.",
+                inspection.base_commit
+            )));
+        }
+
+        // If checkpoint refs already exist, perform idempotent merge and verification
+        if inspection.claude_checkpoint_ref_exists && inspection.codex_checkpoint_ref_exists {
+            info!("Resuming run '{}' from captured checkpoints", run_id);
+            let git_mgr = GitManager::new(repo_root)?;
+            let store = RunStore::new(repo_root, &run_id)?;
+            let computed_hash = spec.compute_contract_hash(repo_root)?;
+            let base_commit = spec.base_commit.clone();
+            let feature_id = spec.feature_id.clone();
+
+            let ref_claude = format!("refs/synapse/{run_id}/checkpoint-claude");
+            let ref_codex = format!("refs/synapse/{run_id}/checkpoint-codex");
+
+            let wt_stage = git_mgr
+                .create_worktree(&run_id, "stage", &base_commit)
+                .await?;
+            git_mgr
+                .merge_ref(&wt_stage, &ref_claude, "synapse: resume integrate claude")
+                .await?;
+            git_mgr
+                .merge_ref(&wt_stage, &ref_codex, "synapse: resume integrate codex")
+                .await?;
+
+            for (file, rule) in &spec.shared_file_policy {
+                if rule.resolution.as_deref() == Some("regenerate") {
+                    let _ = git_mgr.checkout_file(&wt_stage, "HEAD", file).await;
+                }
+            }
+
+            store.transition_to(
+                RunState::Verification,
+                vec![],
+                TransitionOutcome::Success,
+                Some("Resumed run: executing verification suite in staging".into()),
+            )?;
+
+            let verification_report = VerificationPipeline::verify_staging(
+                &wt_stage,
+                repo_root,
+                &spec,
+                Some(&computed_hash),
+            )
+            .await?;
+
+            let staging_diff = git_mgr
+                .run_git(&["diff", &base_commit], Some(&wt_stage))
+                .await
+                .unwrap_or_default();
+
+            let diff_names_out = git_mgr
+                .run_git(&["diff", "--name-only", &base_commit], Some(&wt_stage))
+                .await
+                .unwrap_or_default();
+
+            let mut changed_files = Vec::new();
+            for line in diff_names_out.lines() {
+                let trimmed = line.trim();
+                if !trimmed.is_empty() {
+                    changed_files.push(trimmed.replace('\\', "/"));
+                }
+            }
+
+            let _ = git_mgr.remove_worktree(&wt_stage).await;
+
+            let report = EvidenceReport {
+                run_id: run_id.clone(),
+                feature_id,
+                base_commit,
+                contract_hash: Some(computed_hash),
+                status: if verification_report.all_required_passed {
+                    "REVIEW_READY".into()
+                } else {
+                    "FAILED".into()
+                },
+                started_at: Utc::now(),
+                completed_at: Utc::now(),
+                duration_seconds: 0.0,
+                changed_files,
+                unified_diff: staging_diff,
+                checks: verification_report.check_results,
+                all_required_checks_passed: verification_report.all_required_passed,
+                review_findings: Vec::new(),
+                executed_adversarial_checks: Vec::new(),
+                repair_iterations_count: 0,
+                telemetry: TelemetryReport {
+                    observed_usage: ObservedUsage::default(),
+                    estimated_cost_usd: 0.0,
+                    billed_cost_usd: None,
+                    pricing_table_version: "2026-10-pricing-v1".into(),
+                    usage_source: "resumed checkpoints".into(),
+                },
+                next_actions: vec!["Review resumed report".into()],
+            };
+
+            report.save_to_dir(store.artifacts_dir())?;
+            report.save_to_dir(store.run_dir())?;
+
+            if verification_report.all_required_passed {
+                store.transition_to(
+                    RunState::ReviewReady,
+                    vec!["report.json".into(), "report.md".into()],
+                    TransitionOutcome::Success,
+                    Some("Resumed run verified successfully".into()),
+                )?;
+            } else {
+                store.transition_to(
+                    RunState::NeedsUser,
+                    vec!["report.json".into(), "report.md".into()],
+                    TransitionOutcome::Failure("Resumed run verification checks failed".into()),
+                    Some("Verification failed on resume".into()),
+                )?;
+            }
+
+            Ok(report)
+        } else {
+            Self::run_dual_agent(repo_root, options).await
+        }
+    }
+
+    pub async fn cancel_run(
+        repo_root: impl AsRef<Path>,
+        run_id: &str,
+        reason: Option<String>,
+    ) -> Result<(), RunnerError> {
+        RecoveryManager::cancel_run(repo_root, run_id, reason).await
+    }
+
+    pub async fn cleanup_run(
+        repo_root: impl AsRef<Path>,
+        run_id: &str,
+        keep_artifacts: bool,
+    ) -> Result<CleanupSummary, RunnerError> {
+        RecoveryManager::cleanup_run(repo_root, run_id, keep_artifacts).await
     }
 }

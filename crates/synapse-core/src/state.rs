@@ -88,7 +88,7 @@ impl RunState {
             Self::Verification => matches!(next, Self::ReviewReady | Self::Repair),
             Self::Repair => matches!(
                 next,
-                Self::Implementation | Self::Integration | Self::Verification
+                Self::Implementation | Self::Integration | Self::Verification | Self::ReviewReady
             ),
             Self::ReviewReady => matches!(next, Self::Repair),
             Self::NeedsUser => true,

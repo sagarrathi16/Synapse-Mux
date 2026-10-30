@@ -29,4 +29,5 @@ hex = "0.4"
 tempfile = "3.17"
 async-trait = "0.1"
 uuid = { version = "1.13", features = ["v4", "serde"] }
+regex = "1.11"
 

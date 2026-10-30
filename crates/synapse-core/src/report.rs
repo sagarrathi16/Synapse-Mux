@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::adapters::ObservedUsage;
 use crate::check::{CheckResult, CheckStatus};
+use crate::review::ReviewFinding;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TelemetryReport {
@@ -30,6 +31,12 @@ pub struct EvidenceReport {
     pub unified_diff: String,
     pub checks: Vec<CheckResult>,
     pub all_required_checks_passed: bool,
+    #[serde(default)]
+    pub review_findings: Vec<ReviewFinding>,
+    #[serde(default)]
+    pub executed_adversarial_checks: Vec<CheckResult>,
+    #[serde(default)]
+    pub repair_iterations_count: usize,
     pub telemetry: TelemetryReport,
     pub next_actions: Vec<String>,
 }
@@ -80,7 +87,50 @@ impl EvidenceReport {
             md.push('\n');
         }
 
-        md.push_str("## 2. Telemetry & Cost Honesty\n\n");
+        if !self.review_findings.is_empty() || !self.executed_adversarial_checks.is_empty() {
+            md.push_str("## 2. Independent Model Review & Adversarial Tests\n\n");
+            if !self.review_findings.is_empty() {
+                md.push_str("### Findings\n\n");
+                for f in &self.review_findings {
+                    md.push_str(&format!(
+                        "- **[{:?}]** {}{}: {}\n",
+                        f.severity,
+                        f.file_path
+                            .as_deref()
+                            .map(|p| format!("`{p}`: "))
+                            .unwrap_or_default(),
+                        f.title,
+                        f.description
+                    ));
+                    if let Some(ref fix) = f.suggested_fix {
+                        md.push_str(&format!("  *Suggested Fix:* {}\n", fix));
+                    }
+                }
+                md.push('\n');
+            }
+
+            if !self.executed_adversarial_checks.is_empty() {
+                md.push_str("### Executed Adversarial Tests\n\n");
+                md.push_str("| Test | Status | Duration |\n");
+                md.push_str("| :--- | :---: | :---: |\n");
+                for t in &self.executed_adversarial_checks {
+                    md.push_str(&format!(
+                        "| `{}` | **{:?}** | {}ms |\n",
+                        t.name, t.status, t.duration_ms
+                    ));
+                }
+                md.push('\n');
+            }
+        }
+
+        if self.repair_iterations_count > 0 {
+            md.push_str(&format!(
+                "## Repair Loop\n- Total repair iterations executed: {}\n\n",
+                self.repair_iterations_count
+            ));
+        }
+
+        md.push_str("## 3. Telemetry & Cost Honesty\n\n");
         md.push_str("> [!IMPORTANT]\n");
         md.push_str("> Cost estimates are calculated locally from versioned pricing tables. Billed cost is only populated if authoritatively returned by the provider.\n\n");
         md.push_str(&format!(

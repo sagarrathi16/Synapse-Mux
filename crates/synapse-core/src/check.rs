@@ -7,6 +7,9 @@ use thiserror::Error;
 use tokio::process::Command;
 
 use crate::config::VerificationCommand;
+use crate::security::{scrub_secrets, truncate_output};
+
+pub const DEFAULT_MAX_OUTPUT_BYTES: usize = 256 * 1024; // 256 KB limit per check stream
 
 #[derive(Error, Debug)]
 pub enum CheckError {
@@ -89,8 +92,12 @@ impl CheckRunner {
 
         match output_res {
             Ok(Ok(output)) => {
-                let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-                let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                let raw_stdout = String::from_utf8_lossy(&output.stdout);
+                let raw_stderr = String::from_utf8_lossy(&output.stderr);
+                let scrubbed_stdout = scrub_secrets(&raw_stdout);
+                let scrubbed_stderr = scrub_secrets(&raw_stderr);
+                let stdout = truncate_output(&scrubbed_stdout, DEFAULT_MAX_OUTPUT_BYTES, false);
+                let stderr = truncate_output(&scrubbed_stderr, DEFAULT_MAX_OUTPUT_BYTES, true);
                 let exit_code = output.status.code();
                 let status = if output.status.success() {
                     CheckStatus::Passed
@@ -192,5 +199,25 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(fail_res.status, CheckStatus::Failed);
+
+        // Check secret scrubbing in command output
+        let echo_secret_cmd = VerificationCommand {
+            name: "echo_secret".into(),
+            argv: vec![
+                "git".into(),
+                "config".into(),
+                "--default".into(),
+                "sk-ant-secret123456789".into(),
+                "user.token".into(),
+            ],
+            cwd: None,
+            timeout_seconds: 10,
+            required: true,
+        };
+        let secret_res = CheckRunner::run_command(&echo_secret_cmd, temp.path())
+            .await
+            .unwrap();
+        assert!(!secret_res.stdout.contains("sk-ant-secret123456789"));
+        assert!(secret_res.stdout.contains("sk-ant-***REDACTED***"));
     }
 }

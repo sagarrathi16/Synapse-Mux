@@ -372,7 +372,8 @@ impl SynapseSpec {
             let full = repo_root.join(&rel);
             if full.exists() {
                 let bytes = fs::read(&full)?;
-                hasher.update(&bytes);
+                let normalized = Self::normalize_crlf(&bytes);
+                hasher.update(&normalized);
             }
         }
 
@@ -384,11 +385,28 @@ impl SynapseSpec {
             let full = repo_root.join(&rel);
             if full.exists() {
                 let bytes = fs::read(&full)?;
-                hasher.update(&bytes);
+                let normalized = Self::normalize_crlf(&bytes);
+                hasher.update(&normalized);
             }
         }
 
         Ok(hex::encode(hasher.finalize()))
+    }
+
+    /// Normalizes CRLF line endings to LF so contract hashes are platform- and checkout-independent
+    pub fn normalize_crlf(bytes: &[u8]) -> Vec<u8> {
+        let mut normalized = Vec::with_capacity(bytes.len());
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i] == b'\r' && i + 1 < bytes.len() && bytes[i + 1] == b'\n' {
+                normalized.push(b'\n');
+                i += 2;
+            } else {
+                normalized.push(bytes[i]);
+                i += 1;
+            }
+        }
+        normalized
     }
 }
 

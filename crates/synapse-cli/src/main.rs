@@ -87,6 +87,51 @@ enum Commands {
         #[arg(long)]
         mock_timeout: bool,
     },
+
+    /// Resume an interrupted or checkpointed run
+    Resume {
+        /// Run ID to resume
+        #[arg(long)]
+        run_id: String,
+
+        /// Path to synapse-spec.json specification
+        #[arg(short, long, default_value = "synapse-spec.json")]
+        spec: PathBuf,
+
+        /// Path to repository root
+        #[arg(long, default_value = ".")]
+        repo: PathBuf,
+    },
+
+    /// Cancel an active run and mark it cancelled
+    Cancel {
+        /// Run ID to cancel
+        #[arg(long)]
+        run_id: String,
+
+        /// Reason for cancellation
+        #[arg(short, long)]
+        reason: Option<String>,
+
+        /// Path to repository root
+        #[arg(long, default_value = ".")]
+        repo: PathBuf,
+    },
+
+    /// Clean up generated worktrees safely
+    Cleanup {
+        /// Run ID to clean up
+        #[arg(long)]
+        run_id: String,
+
+        /// Keep run artifacts in .synapse/runs/<run_id>/
+        #[arg(long, default_value_t = true)]
+        keep_artifacts: bool,
+
+        /// Path to repository root
+        #[arg(long, default_value = ".")]
+        repo: PathBuf,
+    },
 }
 
 #[derive(Subcommand)]
@@ -254,6 +299,7 @@ async fn main() -> ExitCode {
                     claude_mock_file_writes: Vec::new(),
                     codex_mock_file_writes: Vec::new(),
                     approve_hash,
+                    ..Default::default()
                 };
 
                 match Orchestrator::run_dual_agent(&repo, options).await {
@@ -270,6 +316,70 @@ async fn main() -> ExitCode {
                         eprintln!("{e}");
                         ExitCode::FAILURE
                     }
+                }
+            }
+        }
+        Commands::Resume { run_id, spec, repo } => {
+            info!("Resuming run '{}'", run_id);
+            let options = DualWorkerOptions {
+                spec_path: spec,
+                run_id: Some(run_id.clone()),
+                ..Default::default()
+            };
+
+            match Orchestrator::resume_dual_agent(&repo, options).await {
+                Ok(report) => {
+                    println!("\n=== Run Resumed Successfully ===");
+                    println!("{}", report.to_markdown_string());
+                    if report.status == "REVIEW_READY" {
+                        ExitCode::SUCCESS
+                    } else {
+                        ExitCode::FAILURE
+                    }
+                }
+                Err(e) => {
+                    eprintln!("\n=== Run Resume Failed ===");
+                    eprintln!("{e}");
+                    ExitCode::FAILURE
+                }
+            }
+        }
+        Commands::Cancel {
+            run_id,
+            reason,
+            repo,
+        } => {
+            info!("Cancelling run '{}'", run_id);
+            match Orchestrator::cancel_run(&repo, &run_id, reason).await {
+                Ok(()) => {
+                    println!("\nRun '{}' cancelled successfully.", run_id);
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("\n=== Failed to Cancel Run ===");
+                    eprintln!("{e}");
+                    ExitCode::FAILURE
+                }
+            }
+        }
+        Commands::Cleanup {
+            run_id,
+            keep_artifacts,
+            repo,
+        } => {
+            info!("Cleaning up worktrees for run '{}'", run_id);
+            match Orchestrator::cleanup_run(&repo, &run_id, keep_artifacts).await {
+                Ok(summary) => {
+                    println!("\n=== Cleanup Completed ===");
+                    println!("Run ID:            {}", summary.run_id);
+                    println!("Removed Worktrees: {}", summary.removed_worktrees.len());
+                    println!("Artifacts Kept:    {}", summary.artifacts_kept);
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("\n=== Failed to Cleanup Run ===");
+                    eprintln!("{e}");
+                    ExitCode::FAILURE
                 }
             }
         }
